@@ -1,4 +1,5 @@
 
+
 import { UpgradeCategory, UpgradeDef } from './types';
 
 export const CANVAS_WIDTH = window.innerWidth;
@@ -20,12 +21,12 @@ export const BULLET_RATE = 20;
 export const BULLET_DAMAGE = 10; 
 
 // --- ENEMIES ---
-export const ASTEROID_SPEED_BASE = 1.0; // Slightly slower base speed
-export const MOLTEN_SPEED_MULTIPLIER = 3.5; 
+export const ASTEROID_SPEED_BASE = 0.8; // Slightly slower base speed for weight
+export const MOLTEN_SPEED_MULTIPLIER = 2.0; // Reduced from 3.5 to 2.0 (Heavy threat, not missile)
 export const ASTEROID_HULL_DAMAGE = 15; 
 export const ASTEROID_SMALL_DAMAGE = 5; 
-export const MOLTEN_SPAWN_RATE = 0.003; 
 export const HIT_FLASH_FRAMES = 4;
+export const FORMATION_CHANCE = 0.15; // 15% chance to spawn a formation instead of single rock
 
 // --- PROGRESSION GATES ---
 export const LEVEL_GATE_LARGE_ASTEROIDS = 2; 
