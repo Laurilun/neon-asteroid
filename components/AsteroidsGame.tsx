@@ -6,11 +6,12 @@ import {
 import { 
   SHIP_SIZE, SHIP_THRUST, SHIP_TURN_SPEED, SHIP_FRICTION, SHIP_MAX_SPEED,
   BULLET_SPEED, BULLET_LIFE, BULLET_RATE, BULLET_DAMAGE,
-  ASTEROID_SPEED_BASE, MOLTEN_SPEED_MULTIPLIER, ASTEROID_HULL_DAMAGE, MOLTEN_SPAWN_RATE,
+  ASTEROID_SPEED_BASE, MOLTEN_SPEED_MULTIPLIER, ASTEROID_HULL_DAMAGE, ASTEROID_SMALL_DAMAGE, MOLTEN_SPAWN_RATE,
   FUEL_DECAY_ON_THRUST, FUEL_DECAY_PASSIVE, FUEL_ORB_VALUE, PARTICLE_COUNT_EXPLOSION, COLORS, FUEL_ORB_LIFE, FUEL_DROP_CHANCE,
   HULL_ORB_VALUE, HULL_DROP_CHANCE,
   HIT_FLASH_FRAMES, SCREEN_SHAKE_DECAY,
-  UPGRADES, XP_BASE_REQ, XP_SCALING_FACTOR
+  UPGRADES, XP_BASE_REQ, XP_SCALING_FACTOR,
+  LEVEL_GATE_LARGE_ASTEROIDS, LEVEL_GATE_MOLTEN_SMALL, LEVEL_GATE_MOLTEN_LARGE
 } from '../constants';
 
 // --- Utility Functions ---
@@ -60,6 +61,16 @@ const checkShipCollision = (ship: Ship, asteroid: Asteroid): boolean => {
   return false;
 };
 
+interface FloatingText {
+    id: string;
+    text: string;
+    pos: Vector;
+    vel: Vector;
+    life: number;
+    color: string;
+    size: number;
+}
+
 const AsteroidsGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
@@ -80,7 +91,9 @@ const AsteroidsGame: React.FC = () => {
   const particlesRef = useRef<Particle[]>([]);
   const fuelOrbsRef = useRef<FuelOrb[]>([]);
   const hullOrbsRef = useRef<HullOrb[]>([]);
-  const droneRef = useRef<Drone | null>(null);
+  const dronesRef = useRef<Drone[]>([]);
+  const floatingTextsRef = useRef<FloatingText[]>([]);
+
   const inputRef = useRef({ up: false, left: false, right: false });
   const frameRef = useRef<number>(0);
   const waveRef = useRef<number>(1);
@@ -116,16 +129,18 @@ const AsteroidsGame: React.FC = () => {
       invulnerableUntil: Date.now() + 2000,
       stats: {
         fuelEfficiency: 1.0,
+        fuelRecoveryMult: 1.0,
+        thrustMult: 1.0,
+        speedMult: 1.0,
         maxFuelMult: 1.0,
         maxHullMult: 1.0,
         fireRateMult: 1.0,
-        damageMult: 1.0,
         bulletSpeedMult: 1.0,
         pickupRange: 50,
         shieldCharges: 0,
         maxShieldCharges: 0,
-        hasWingman: false,
-        wingmanTier: 0
+        droneCount: 0,
+        multishotTier: 0
       }
     };
 
@@ -134,7 +149,8 @@ const AsteroidsGame: React.FC = () => {
     particlesRef.current = [];
     fuelOrbsRef.current = [];
     hullOrbsRef.current = [];
-    droneRef.current = null;
+    dronesRef.current = [];
+    floatingTextsRef.current = [];
     
     waveRef.current = 1;
     setScore(0);
@@ -142,24 +158,42 @@ const AsteroidsGame: React.FC = () => {
     setXpTarget(XP_BASE_REQ);
     setActiveUpgrades({});
     
-    spawnWave(1);
+    // Spawn first wave (offscreen)
+    spawnWave(1, 1);
     setGameState(GameState.PLAYING);
   }, []);
 
-  const spawnWave = (wave: number) => {
+  const spawnWave = (wave: number, currentLevel: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     // Difficulty scaling: More asteroids and faster asteroids per wave/level
     const count = 3 + Math.floor(wave * 1.5); 
-    const speedMult = 1 + (level * 0.05);
+    const speedMult = 1 + (currentLevel * 0.05);
 
     for (let i = 0; i < count; i++) {
-      spawnAsteroid(canvas.width, canvas.height, 3, undefined, speedMult);
+      // Determine allowed size category based on level
+      let sizeCat: 1 | 2 | 3 = 1;
+      const rand = Math.random();
+      
+      if (currentLevel < LEVEL_GATE_LARGE_ASTEROIDS) {
+          // Level 1: Mostly small, some medium. No large.
+          sizeCat = rand > 0.6 ? 2 : 1;
+      } else {
+          // Level 2+: Full mix
+          if (rand > 0.7) sizeCat = 3;
+          else if (rand > 0.3) sizeCat = 2;
+          else sizeCat = 1;
+      }
+
+      // Always spawn offscreen for new waves
+      spawnAsteroid(canvas.width, canvas.height, sizeCat, undefined, speedMult, true);
     }
   };
 
-  const spawnMoltenFlyby = (cw: number, ch: number) => {
+  const spawnMoltenFlyby = (cw: number, ch: number, currentLevel: number) => {
+      if (currentLevel < LEVEL_GATE_MOLTEN_SMALL) return;
+
       const edge = Math.floor(Math.random() * 4); 
       let pos = { x: 0, y: 0 };
       let target = { x: 0, y: 0 };
@@ -173,10 +207,15 @@ const AsteroidsGame: React.FC = () => {
       }
 
       const angle = Math.atan2(target.y - pos.y, target.x - pos.x) + (Math.random() - 0.5) * 0.5;
-      const sizeCat = Math.random() < (0.3 + level * 0.02) ? 3 : 2; // Higher chance for big ones at high levels
+      
+      let sizeCat: 2 | 3 = 2;
+      if (currentLevel >= LEVEL_GATE_MOLTEN_LARGE) {
+           sizeCat = Math.random() < (0.3 + currentLevel * 0.02) ? 3 : 2; 
+      }
+
       const radius = sizeCat === 3 ? 75 : 35;
       const hp = sizeCat === 3 ? 250 : 80;
-      const speedMult = (sizeCat === 3 ? MOLTEN_SPEED_MULTIPLIER * 0.8 : MOLTEN_SPEED_MULTIPLIER) * (1 + level * 0.05);
+      const speedMult = (sizeCat === 3 ? MOLTEN_SPEED_MULTIPLIER * 0.8 : MOLTEN_SPEED_MULTIPLIER) * (1 + currentLevel * 0.05);
       const speed = ASTEROID_SPEED_BASE * speedMult;
       
       asteroidsRef.current.push({
@@ -195,9 +234,8 @@ const AsteroidsGame: React.FC = () => {
       });
   };
 
-  const spawnAsteroid = (cw: number, ch: number, sizeCat: 1 | 2 | 3, pos?: Vector, speedMultiplier = 1.0) => {
+  const spawnAsteroid = (cw: number, ch: number, sizeCat: 1 | 2 | 3, pos?: Vector, speedMultiplier = 1.0, forceOffScreen = false) => {
     const radius = sizeCat === 3 ? 65 : sizeCat === 2 ? 35 : 18;
-    // HP scales slightly with level to keep late game interesting
     const hpBase = sizeCat === 3 ? 150 : sizeCat === 2 ? 50 : 20; 
     const hp = hpBase * (1 + (level - 1) * 0.1);
 
@@ -205,18 +243,48 @@ const AsteroidsGame: React.FC = () => {
     
     let position = pos;
     if (!position) {
-      if (Math.random() < 0.5) {
-        position = { x: Math.random() < 0.5 ? 0 : cw, y: Math.random() * ch };
+      if (forceOffScreen) {
+        const buffer = radius + 20;
+        if (Math.random() < 0.5) {
+            // Left or Right
+            position = { 
+                x: Math.random() < 0.5 ? -buffer : cw + buffer, 
+                y: Math.random() * ch 
+            };
+        } else {
+            // Top or Bottom
+            position = { 
+                x: Math.random() * cw, 
+                y: Math.random() < 0.5 ? -buffer : ch + buffer 
+            };
+        }
+        
+        // Aim generally towards the center if spawned far out
+        // (Override the random angle below if we want them to drift IN)
       } else {
-        position = { x: Math.random() * cw, y: Math.random() < 0.5 ? 0 : ch };
+        // Fallback or on-edge spawn (used for Menu)
+        if (Math.random() < 0.5) {
+            position = { x: Math.random() < 0.5 ? 0 : cw, y: Math.random() * ch };
+        } else {
+            position = { x: Math.random() * cw, y: Math.random() < 0.5 ? 0 : ch };
+        }
       }
     }
 
-    const angle = Math.random() * Math.PI * 2;
+    // If spawned offscreen, calculate angle to point somewhat towards the screen
+    let angle = Math.random() * Math.PI * 2;
+    if (forceOffScreen && position) {
+        const centerX = cw / 2;
+        const centerY = ch / 2;
+        const angleToCenter = Math.atan2(centerY - position.y, centerX - position.x);
+        // Add some randomness so they don't all go to exact center
+        angle = angleToCenter + (Math.random() - 0.5) * 1.5; 
+    }
+
     asteroidsRef.current.push({
       id: Math.random().toString(36).substr(2, 9),
       type: EntityType.Asteroid,
-      pos: position,
+      pos: position!,
       vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
       radius: radius,
       angle: 0,
@@ -247,6 +315,18 @@ const AsteroidsGame: React.FC = () => {
         decay: 0.02 + Math.random() * 0.03,
       });
     }
+  };
+
+  const spawnFloatingText = (pos: Vector, text: string, color: string, size: number = 14) => {
+      floatingTextsRef.current.push({
+          id: Math.random().toString(),
+          text,
+          pos: { ...pos },
+          vel: { x: 0, y: -1 },
+          life: 40,
+          color,
+          size
+      });
   };
 
   const spawnFuelOrb = (pos: Vector) => {
@@ -285,9 +365,9 @@ const AsteroidsGame: React.FC = () => {
           setGameState(GameState.LEVEL_UP);
           
           // Pick 3 random upgrades (one of each category)
-          const green = UPGRADES.filter(u => u.category === UpgradeCategory.SURVIVAL);
+          const green = UPGRADES.filter(u => u.category === UpgradeCategory.TECH);
           const red = UPGRADES.filter(u => u.category === UpgradeCategory.COMBAT);
-          const purple = UPGRADES.filter(u => u.category === UpgradeCategory.TECH);
+          const purple = UPGRADES.filter(u => u.category === UpgradeCategory.ADDONS);
           
           const selection = [
               green[Math.floor(Math.random() * green.length)],
@@ -310,34 +390,43 @@ const AsteroidsGame: React.FC = () => {
           const s = shipRef.current.stats;
           
           switch(upgrade.id) {
-              case 'efficiency': s.fuelEfficiency = 1.0 - (currentTier * 0.20); break; // -20%, -40%
+              case 'engine': 
+                  s.thrustMult = 1.0 + (currentTier * 0.25);
+                  s.speedMult = 1.0 + (currentTier * 0.25);
+                  break;
               case 'tank': 
-                  s.maxFuelMult = 1.0 + (currentTier * 0.30); 
+                  s.maxFuelMult = 1.0 + (currentTier * 0.40); 
+                  s.fuelEfficiency = Math.max(0.1, 1.0 - (currentTier * 0.15)); // Reduce decay
+                  s.fuelRecoveryMult = 1.0 + (currentTier * 0.20); // Increase intake
                   shipRef.current.maxFuel = 100 * s.maxFuelMult;
-                  shipRef.current.fuel = shipRef.current.maxFuel; // Refill on upgrade
+                  shipRef.current.fuel = shipRef.current.maxFuel; // Refill
                   break;
               case 'hull':
-                  s.maxHullMult = 1.0 + (currentTier * 0.25);
+                  s.maxHullMult = 1.0 + (currentTier * 0.30);
                   shipRef.current.maxHull = 100 * s.maxHullMult;
                   shipRef.current.hull = shipRef.current.maxHull; // Full Repair
                   break;
-              case 'rapidfire': s.fireRateMult = Math.max(0.2, 1.0 - (currentTier * 0.15)); break;
-              case 'damage': s.damageMult = 1.0 + (currentTier * 0.25); break;
-              case 'velocity': s.bulletSpeedMult = 1.0 + (currentTier * 0.20); break;
-              case 'wingman': 
-                  s.hasWingman = true; 
-                  s.wingmanTier = currentTier;
-                  // Initialize drone if not present
-                  if (!droneRef.current) {
-                      droneRef.current = {
-                          id: 'drone', type: EntityType.Drone,
+              case 'rapidfire': s.fireRateMult = Math.max(0.1, 1.0 - (currentTier * 0.20)); break;
+              case 'multishot': s.multishotTier = currentTier; break;
+              case 'velocity': s.bulletSpeedMult = 1.0 + (currentTier * 0.25); break;
+              case 'drone': 
+                  s.droneCount = currentTier;
+                  // Ensure drones array matches count
+                  while (dronesRef.current.length < s.droneCount) {
+                      dronesRef.current.push({
+                          id: `drone-${dronesRef.current.length}`, 
+                          type: EntityType.Drone,
                           pos: { ...shipRef.current.pos }, vel: {x:0,y:0},
                           radius: 5, angle: 0, color: COLORS.DRONE, toBeRemoved: false,
-                          targetId: null, orbitAngle: 0, lastShot: 0
-                      };
+                          targetId: null, orbitOffset: (Math.PI * 2 * dronesRef.current.length), lastShot: 0
+                      });
                   }
+                  // Reset offsets for even spacing
+                  dronesRef.current.forEach((d, i) => {
+                      d.orbitOffset = (i / s.droneCount) * Math.PI * 2;
+                  });
                   break;
-              case 'magnet': s.pickupRange = 50 + (currentTier * 50); break;
+              case 'magnet': s.pickupRange = 50 + (currentTier * 60); break;
               case 'shield': 
                   s.maxShieldCharges = currentTier; 
                   s.shieldCharges = currentTier; // Refill charges
@@ -418,11 +507,6 @@ const AsteroidsGame: React.FC = () => {
       }
       if (scoreElRef.current) scoreElRef.current.innerText = score.toString().padStart(6, '0');
       if (levelBarRef.current) {
-          // Progress to next level
-          // Calculate relative progress based on previous level threshold?
-          // Simplified: just show % of total target for now, or relative range.
-          // Let's do relative to current level gap for smoother bar.
-          // For simplicity in this iteration: % of current target.
           const pct = Math.min(100, (score / xpTarget) * 100);
           levelBarRef.current.style.width = `${pct}%`;
       }
@@ -454,7 +538,7 @@ const AsteroidsGame: React.FC = () => {
         checkLevelUp(score);
 
         if (Math.random() < MOLTEN_SPAWN_RATE + (level * 0.0005)) {
-            spawnMoltenFlyby(cw, ch);
+            spawnMoltenFlyby(cw, ch, level);
         }
 
         // Apply Stats
@@ -469,8 +553,9 @@ const AsteroidsGame: React.FC = () => {
         if (inputRef.current.right) ship.rotation += SHIP_TURN_SPEED;
 
         if (inputRef.current.up && ship.fuel > 0) {
-          ship.vel.x += Math.cos(ship.rotation) * SHIP_THRUST;
-          ship.vel.y += Math.sin(ship.rotation) * SHIP_THRUST;
+          const thrustPower = SHIP_THRUST * stats.thrustMult;
+          ship.vel.x += Math.cos(ship.rotation) * thrustPower;
+          ship.vel.y += Math.sin(ship.rotation) * thrustPower;
           ship.thrusting = true;
           ship.fuel = Math.max(0, ship.fuel - (FUEL_DECAY_ON_THRUST * stats.fuelEfficiency));
           if (frameCountRef.current % 3 === 0) {
@@ -486,10 +571,12 @@ const AsteroidsGame: React.FC = () => {
 
         ship.vel.x *= SHIP_FRICTION;
         ship.vel.y *= SHIP_FRICTION;
-        const speed = Math.sqrt(ship.vel.x**2 + ship.vel.y**2);
-        if (speed > SHIP_MAX_SPEED) {
-            ship.vel.x = (ship.vel.x / speed) * SHIP_MAX_SPEED;
-            ship.vel.y = (ship.vel.y / speed) * SHIP_MAX_SPEED;
+        const currentSpeed = Math.sqrt(ship.vel.x**2 + ship.vel.y**2);
+        const maxSpeed = SHIP_MAX_SPEED * stats.speedMult;
+        
+        if (currentSpeed > maxSpeed) {
+            ship.vel.x = (ship.vel.x / currentSpeed) * maxSpeed;
+            ship.vel.y = (ship.vel.y / currentSpeed) * maxSpeed;
         }
         ship.pos.x += ship.vel.x;
         ship.pos.y += ship.vel.y;
@@ -499,75 +586,89 @@ const AsteroidsGame: React.FC = () => {
         if (ship.pos.y < 0) ship.pos.y = ch;
         if (ship.pos.y > ch) ship.pos.y = 0;
 
-        // Shooting
-        const fireRate = Math.max(1, Math.floor(BULLET_RATE * stats.fireRateMult));
+        // Shooting (Multishot Logic)
+        const fireRate = Math.max(4, Math.floor(BULLET_RATE * stats.fireRateMult));
         if (frameCountRef.current % fireRate === 0) {
-            bulletsRef.current.push({
-                id: Math.random().toString(),
-                type: EntityType.Bullet,
-                pos: { 
-                    x: ship.pos.x + Math.cos(ship.rotation) * ship.radius,
-                    y: ship.pos.y + Math.sin(ship.rotation) * ship.radius
-                },
-                vel: {
-                    x: Math.cos(ship.rotation) * BULLET_SPEED * stats.bulletSpeedMult + ship.vel.x * 0.2,
-                    y: Math.sin(ship.rotation) * BULLET_SPEED * stats.bulletSpeedMult + ship.vel.y * 0.2
-                },
-                radius: 1.5,
-                angle: ship.rotation,
-                color: COLORS.BULLET,
-                toBeRemoved: false,
-                life: BULLET_LIFE * stats.bulletSpeedMult, // Range scales with speed
-                damage: BULLET_DAMAGE * stats.damageMult
+            const shotAngles = [];
+            if (stats.multishotTier === 0) shotAngles.push(0);
+            else if (stats.multishotTier === 1) shotAngles.push(-0.1, 0.1);
+            else if (stats.multishotTier === 2) shotAngles.push(-0.2, 0, 0.2);
+            else shotAngles.push(-0.3, -0.15, 0, 0.15, 0.3); // Penta-shot
+
+            shotAngles.forEach(offset => {
+                const a = ship.rotation + offset;
+                bulletsRef.current.push({
+                    id: Math.random().toString(),
+                    type: EntityType.Bullet,
+                    pos: { 
+                        x: ship.pos.x + Math.cos(a) * ship.radius,
+                        y: ship.pos.y + Math.sin(a) * ship.radius
+                    },
+                    vel: {
+                        x: Math.cos(a) * BULLET_SPEED * stats.bulletSpeedMult + ship.vel.x * 0.2,
+                        y: Math.sin(a) * BULLET_SPEED * stats.bulletSpeedMult + ship.vel.y * 0.2
+                    },
+                    radius: 1.5,
+                    angle: a,
+                    color: COLORS.BULLET,
+                    toBeRemoved: false,
+                    life: BULLET_LIFE * stats.bulletSpeedMult, 
+                    damage: BULLET_DAMAGE
+                });
             });
         }
 
-        // --- Drone Logic ---
-        if (stats.hasWingman && droneRef.current) {
-            const drone = droneRef.current;
-            // Orbit
-            drone.orbitAngle += 0.05;
-            drone.pos.x = ship.pos.x + Math.cos(drone.orbitAngle) * 25;
-            drone.pos.y = ship.pos.y + Math.sin(drone.orbitAngle) * 25;
+        // --- Drone Swarm Logic ---
+        if (stats.droneCount > 0) {
+            const baseOrbitSpeed = 0.02;
+            const globalOrbit = frameCountRef.current * baseOrbitSpeed;
+            
+            dronesRef.current.forEach((drone, i) => {
+                // Determine target angle based on swarm count for even distribution
+                const angleOffset = (i / stats.droneCount) * Math.PI * 2;
+                const currentAngle = globalOrbit + angleOffset;
+                
+                // Orbit movement
+                drone.pos.x = ship.pos.x + Math.cos(currentAngle) * 35;
+                drone.pos.y = ship.pos.y + Math.sin(currentAngle) * 35;
 
-            // Target & Shoot
-            const droneFireRate = Math.max(10, 60 - (stats.wingmanTier * 5)); // Improves with tier
-            if (frameCountRef.current - drone.lastShot > droneFireRate) {
-                // Find nearest
-                let nearest = null;
-                let minDist = 300; // Drone range
-                for(const a of asteroidsRef.current) {
-                    const d = dist(drone.pos, a.pos);
-                    if (d < minDist) {
-                        minDist = d;
-                        nearest = a;
+                // Auto-fire
+                const droneFireRate = 30; // Drones fire moderately fast
+                if (frameCountRef.current - drone.lastShot > droneFireRate) {
+                    let nearest = null;
+                    let minDist = 450; // Decent range
+                    for(const a of asteroidsRef.current) {
+                        const d = dist(drone.pos, a.pos);
+                        if (d < minDist) {
+                            minDist = d;
+                            nearest = a;
+                        }
+                    }
+                    if (nearest) {
+                        const angle = Math.atan2(nearest.pos.y - drone.pos.y, nearest.pos.x - drone.pos.x);
+                        bulletsRef.current.push({
+                            id: Math.random().toString(),
+                            type: EntityType.Bullet,
+                            pos: { ...drone.pos },
+                            vel: {
+                                x: Math.cos(angle) * BULLET_SPEED,
+                                y: Math.sin(angle) * BULLET_SPEED
+                            },
+                            radius: 1.2,
+                            angle: angle,
+                            color: COLORS.DRONE,
+                            toBeRemoved: false,
+                            life: BULLET_LIFE * 1.5, // Drones have slightly better range than base ship
+                            damage: BULLET_DAMAGE // Same damage
+                        });
+                        drone.lastShot = frameCountRef.current;
                     }
                 }
-                if (nearest) {
-                   const angle = Math.atan2(nearest.pos.y - drone.pos.y, nearest.pos.x - drone.pos.x);
-                   bulletsRef.current.push({
-                       id: Math.random().toString(),
-                       type: EntityType.Bullet,
-                       pos: { ...drone.pos },
-                       vel: {
-                           x: Math.cos(angle) * BULLET_SPEED,
-                           y: Math.sin(angle) * BULLET_SPEED
-                       },
-                       radius: 1, // Smaller drone bullets
-                       angle: angle,
-                       color: COLORS.DRONE,
-                       toBeRemoved: false,
-                       life: BULLET_LIFE,
-                       damage: BULLET_DAMAGE * 0.5 // Drone deals half damage
-                   });
-                   drone.lastShot = frameCountRef.current;
-                }
-            }
+            });
         }
       }
 
       // Physics Updates (run even if menu/gameover for background feel)
-      // Bullets
       bulletsRef.current.forEach(b => {
         if (gameState !== GameState.LEVEL_UP) {
             b.pos.x += b.vel.x;
@@ -637,6 +738,16 @@ const AsteroidsGame: React.FC = () => {
          }
       });
 
+      // Floating Texts
+      floatingTextsRef.current.forEach(t => {
+         if (gameState !== GameState.LEVEL_UP) {
+             t.pos.y += t.vel.y;
+             t.life--;
+             if (t.life <= 0) (t as any).toBeRemoved = true; // Temporary cast for deletion logic
+         }
+      });
+      floatingTextsRef.current = floatingTextsRef.current.filter(t => t.life > 0);
+
       // --- Collisions ---
       if (gameState === GameState.PLAYING) {
           bulletsRef.current.forEach(b => {
@@ -658,6 +769,7 @@ const AsteroidsGame: React.FC = () => {
                         
                         if (a.type !== EntityType.MoltenAsteroid && a.sizeCategory > 1) {
                             const newSize = (a.sizeCategory - 1) as 1 | 2;
+                            // Small asteroid spawns can just stay where they are (pop-out effect from parent is fine)
                             spawnAsteroid(cw, ch, newSize, { ...a.pos }, 1.0 + (level * 0.05));
                             spawnAsteroid(cw, ch, newSize, { ...a.pos }, 1.0 + (level * 0.05));
                         }
@@ -675,8 +787,12 @@ const AsteroidsGame: React.FC = () => {
                   if (o.toBeRemoved) return;
                   if (dist(ship.pos, o.pos) < ship.radius + o.radius) {
                       o.toBeRemoved = true;
-                      ship.fuel = Math.min(ship.maxFuel, ship.fuel + FUEL_ORB_VALUE);
+                      
+                      const recovery = FUEL_ORB_VALUE * ship.stats.fuelRecoveryMult;
+                      ship.fuel = Math.min(ship.maxFuel, ship.fuel + recovery);
+                      
                       setScore(s => s + 50);
+                      spawnFloatingText(ship.pos, `+${Math.round(recovery)} FUEL`, COLORS.FUEL);
                   }
               });
               hullOrbsRef.current.forEach(o => {
@@ -685,6 +801,7 @@ const AsteroidsGame: React.FC = () => {
                       o.toBeRemoved = true;
                       ship.hull = Math.min(ship.maxHull, ship.hull + HULL_ORB_VALUE);
                       setScore(s => s + 50);
+                      spawnFloatingText(ship.pos, `+${HULL_ORB_VALUE} HULL`, COLORS.HULL);
                   }
               });
 
@@ -693,13 +810,13 @@ const AsteroidsGame: React.FC = () => {
                      if (a.toBeRemoved) return;
                      if (checkShipCollision(ship, a)) {
                          if (a.type === EntityType.MoltenAsteroid) {
-                             // Shield Logic
                              if (ship.stats.shieldCharges > 0) {
                                  ship.stats.shieldCharges--;
-                                 a.toBeRemoved = true; // Destroy molten
+                                 a.toBeRemoved = true; 
                                  spawnParticles(a.pos, COLORS.MOLTEN, 40, 8);
                                  screenShakeRef.current = 15;
                                  ship.invulnerableUntil = Date.now() + 1000;
+                                 spawnFloatingText(ship.pos, "SHIELD BLOCK", COLORS.SHIELD);
                              } else {
                                  handleGameOver("Molten Incineration");
                                  ship.toBeRemoved = true;
@@ -709,8 +826,9 @@ const AsteroidsGame: React.FC = () => {
                              if (a.sizeCategory === 1) {
                                  a.toBeRemoved = true;
                                  spawnParticles(a.pos, a.color, 10, 4);
-                                 ship.hull -= 8;
+                                 ship.hull -= ASTEROID_SMALL_DAMAGE;
                                  setScore(s => s + 50);
+                                 spawnFloatingText(ship.pos, `-${ASTEROID_SMALL_DAMAGE} HP`, COLORS.TEXT, 12);
                              } else {
                                  const angle = Math.atan2(ship.pos.y - a.pos.y, ship.pos.x - a.pos.x);
                                  const pushForce = 9;
@@ -720,6 +838,7 @@ const AsteroidsGame: React.FC = () => {
                                  a.hitFlash = HIT_FLASH_FRAMES;
                                  spawnParticles(ship.pos, COLORS.SHIP, 15, 6);
                                  ship.invulnerableUntil = Date.now() + 300;
+                                 spawnFloatingText(ship.pos, `-${ASTEROID_HULL_DAMAGE} HP`, '#ff0000', 16);
                              }
                              if (ship.hull <= 0) {
                                  handleGameOver("Hull Critical");
@@ -734,7 +853,7 @@ const AsteroidsGame: React.FC = () => {
           const activeNormalAsteroids = asteroidsRef.current.filter(a => a.type !== EntityType.MoltenAsteroid).length;
           if (activeNormalAsteroids === 0) {
               waveRef.current++;
-              spawnWave(waveRef.current);
+              spawnWave(waveRef.current, level);
           }
       }
 
@@ -814,7 +933,7 @@ const AsteroidsGame: React.FC = () => {
       });
       ctx.shadowBlur = 0;
 
-      // Ship & Drone
+      // Ship
       if (gameState === GameState.PLAYING && ship && !ship.toBeRemoved) {
           let shouldDraw = true;
           if (ship.invulnerableUntil > Date.now()) if (Math.floor(Date.now() / 100) % 2 === 0) shouldDraw = false;
@@ -857,7 +976,6 @@ const AsteroidsGame: React.FC = () => {
                   ctx.beginPath();
                   ctx.arc(ship.pos.x, ship.pos.y, ship.radius + 10, 0, Math.PI * 2);
                   ctx.stroke();
-                  // Draw Charge Indicators
                   for(let i=0; i<ship.stats.shieldCharges; i++) {
                        const angle = Date.now() / 1000 + (i * (Math.PI*2)/ship.stats.shieldCharges);
                        const cx = ship.pos.x + Math.cos(angle) * (ship.radius + 10);
@@ -869,18 +987,34 @@ const AsteroidsGame: React.FC = () => {
               }
           }
 
-          // Draw Drone
-          if (droneRef.current && ship.stats.hasWingman) {
-              const d = droneRef.current;
+          // Draw Drones
+          dronesRef.current.forEach(d => {
               ctx.fillStyle = COLORS.DRONE;
               ctx.shadowColor = COLORS.DRONE;
               ctx.shadowBlur = 10;
               ctx.beginPath();
               ctx.arc(d.pos.x, d.pos.y, d.radius, 0, Math.PI * 2);
               ctx.fill();
-              ctx.shadowBlur = 0;
-          }
+              
+              // Tether line for visual clarity
+              ctx.strokeStyle = COLORS.DRONE;
+              ctx.lineWidth = 0.5;
+              ctx.globalAlpha = 0.3;
+              ctx.beginPath();
+              ctx.moveTo(ship.pos.x, ship.pos.y);
+              ctx.lineTo(d.pos.x, d.pos.y);
+              ctx.stroke();
+              ctx.globalAlpha = 1.0;
+          });
+          ctx.shadowBlur = 0;
       }
+      
+      // Render Floating Texts
+      floatingTextsRef.current.forEach(t => {
+          ctx.fillStyle = t.color;
+          ctx.font = `bold ${t.size}px Orbitron`;
+          ctx.fillText(t.text, t.pos.x, t.pos.y);
+      });
 
       ctx.restore(); 
       frameRef.current = requestAnimationFrame(loop);
@@ -894,7 +1028,7 @@ const AsteroidsGame: React.FC = () => {
       window.removeEventListener('keyup', handleKeyUp);
       cancelAnimationFrame(frameRef.current);
     };
-  }, [gameState, initGame, score, xpTarget, level]); // Deps ensure loop picks up state changes if re-run
+  }, [gameState, initGame, score, xpTarget, level]); 
 
   return (
     <div className="relative w-full h-full bg-black">
@@ -942,30 +1076,71 @@ const AsteroidsGame: React.FC = () => {
         )}
 
         {/* Level Up Modal */}
-        {gameState === GameState.LEVEL_UP && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80 pointer-events-auto backdrop-blur-md z-50">
-                <div className="text-center w-full max-w-5xl px-4">
-                    <h2 className="text-4xl font-black text-yellow-400 mb-2 uppercase tracking-widest animate-pulse">System Upgrade Available</h2>
-                    <p className="text-gray-400 mb-12">Select an augmentation module</p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        {offeredUpgrades.map((u, i) => (
-                            <button 
-                                key={i}
-                                onClick={() => applyUpgrade(u)}
-                                className={`group relative p-8 border-2 bg-gray-900/90 hover:bg-gray-800 transition-all transform hover:-translate-y-2 hover:shadow-[0_0_30px_rgba(0,0,0,0.5)] ${u.color} rounded-xl overflow-hidden`}
-                            >
-                                <div className="absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity bg-current"></div>
-                                <div className="text-xs font-bold uppercase tracking-widest mb-4 opacity-70">{u.category}</div>
-                                <div className="text-2xl font-bold text-white mb-4 font-orbitron">{u.name}</div>
-                                <div className="text-sm text-gray-300 leading-relaxed min-h-[3rem]">
-                                    {u.description((activeUpgrades[u.id] || 0) + 1)}
+        {gameState === GameState.LEVEL_UP && shipRef.current && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/90 pointer-events-auto backdrop-blur-md z-50">
+                <div className="w-full max-w-6xl px-8 flex flex-col gap-8">
+                    <div className="text-center">
+                         <h2 className="text-4xl font-black text-yellow-400 mb-2 uppercase tracking-widest animate-pulse">System Upgrade Available</h2>
+                         <p className="text-gray-400">Select an augmentation module</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+                        {/* Stats Dashboard */}
+                        <div className="col-span-1 bg-gray-900/80 border border-gray-700 p-4 rounded-xl">
+                            <h3 className="text-cyan-400 font-bold mb-4 uppercase text-sm tracking-widest border-b border-gray-700 pb-2">Ship Status</h3>
+                            <div className="space-y-4 text-sm font-mono text-gray-300">
+                                <div className="flex justify-between">
+                                    <span>HULL</span>
+                                    <span className="text-blue-400">{Math.round(shipRef.current.hull)}/{Math.round(shipRef.current.maxHull)}</span>
                                 </div>
-                                <div className="mt-6 text-xs uppercase tracking-widest font-bold opacity-50">
-                                    Current Tier: {activeUpgrades[u.id] || 0}
+                                <div className="flex justify-between">
+                                    <span>FUEL</span>
+                                    <span className="text-green-400">{Math.round(shipRef.current.fuel)}/{Math.round(shipRef.current.maxFuel)}</span>
                                 </div>
-                            </button>
-                        ))}
+                                <div className="flex justify-between">
+                                    <span>DRONES</span>
+                                    <span>{shipRef.current.stats.droneCount}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span>SHIELDS</span>
+                                    <span>{shipRef.current.stats.shieldCharges}</span>
+                                </div>
+                            </div>
+                            
+                            <h3 className="text-purple-400 font-bold mt-8 mb-4 uppercase text-sm tracking-widest border-b border-gray-700 pb-2">Inventory</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {Object.entries(activeUpgrades).map(([id, tier]) => (
+                                    <div key={id} className="bg-gray-800 px-2 py-1 rounded text-xs text-white border border-gray-600" title={id}>
+                                        {UPGRADES.find(u => u.id === id)?.name} <span className="text-yellow-500">IV{tier}</span>
+                                    </div>
+                                ))}
+                                {Object.keys(activeUpgrades).length === 0 && <span className="text-gray-600 text-xs italic">No modules installed.</span>}
+                            </div>
+                        </div>
+
+                        {/* Selection Cards */}
+                        <div className="col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {offeredUpgrades.map((u, i) => (
+                                <button 
+                                    key={i}
+                                    onClick={() => applyUpgrade(u)}
+                                    className={`group relative p-6 border-2 bg-gray-900 hover:bg-gray-800 transition-all transform hover:-translate-y-2 hover:shadow-[0_0_30px_rgba(0,0,0,0.5)] ${u.color} rounded-xl overflow-hidden flex flex-col`}
+                                >
+                                    <div className="absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity bg-current"></div>
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="text-xs font-bold uppercase tracking-widest opacity-70 border border-current px-2 py-0.5 rounded">{u.category}</div>
+                                        <div className="text-xs font-bold opacity-50">Tier {(activeUpgrades[u.id] || 0) + 1}</div>
+                                    </div>
+                                    <div className="text-xl font-bold text-white mb-2 font-orbitron text-left">{u.name}</div>
+                                    <div className="text-sm text-gray-300 leading-relaxed text-left flex-grow">
+                                        {u.description((activeUpgrades[u.id] || 0) + 1)}
+                                    </div>
+                                    <div className="mt-4 w-full py-2 bg-white/10 group-hover:bg-white/20 text-white text-xs font-bold uppercase tracking-widest rounded transition-colors">
+                                        Install
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>

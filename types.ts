@@ -27,17 +27,19 @@ export interface Entity {
 }
 
 export interface ShipStats {
-  fuelEfficiency: number; // Multiplier (default 1.0)
+  fuelEfficiency: number; // Multiplier for decay (default 1.0, lower is better)
+  fuelRecoveryMult: number; // Multiplier for orb value (default 1.0, higher is better)
+  thrustMult: number;     // Multiplier for engine acceleration (default 1.0)
+  speedMult: number;      // Multiplier for max speed (default 1.0)
   maxFuelMult: number;    // Multiplier (default 1.0)
   maxHullMult: number;    // Multiplier (default 1.0)
   fireRateMult: number;   // Multiplier (default 1.0, lower is faster)
-  damageMult: number;     // Multiplier (default 1.0)
   bulletSpeedMult: number;// Multiplier (default 1.0)
   pickupRange: number;    // Pixels (default 50)
   shieldCharges: number;  // Current charges
   maxShieldCharges: number;
-  hasWingman: boolean;
-  wingmanTier: number;
+  droneCount: number;     // Number of active drones
+  multishotTier: number;  // 0 = single, 1 = double, 2 = triple, etc.
 }
 
 export interface Ship extends Entity {
@@ -81,7 +83,7 @@ export interface HullOrb extends Entity {
 
 export interface Drone extends Entity {
   targetId: string | null;
-  orbitAngle: number;
+  orbitOffset: number; // Offset angle in the swarm ring
   lastShot: number;
 }
 
@@ -93,9 +95,9 @@ export enum GameState {
 }
 
 export enum UpgradeCategory {
-  SURVIVAL = 'SURVIVAL', // Green
-  COMBAT = 'COMBAT',     // Red
-  TECH = 'TECH'          // Purple
+  TECH = 'TECH',       // Green (was Survival)
+  COMBAT = 'COMBAT',   // Red
+  ADDONS = 'ADD-ONS'   // Purple (was Tech)
 }
 
 export interface UpgradeDef {

@@ -6,62 +6,68 @@ export const CANVAS_HEIGHT = window.innerHeight;
 
 export const FPS = 60;
 
-// --- SHIP PHYSICS (Controlled Drift) ---
+// --- SHIP PHYSICS (Vampire Survivors Start: Slow & Heavy) ---
 export const SHIP_SIZE = 12; 
-export const SHIP_THRUST = 0.22; 
-export const SHIP_TURN_SPEED = 0.09; 
-export const SHIP_FRICTION = 0.995; 
-export const SHIP_MAX_SPEED = 13; 
+export const SHIP_THRUST = 0.05; // Base acceleration (Starts very sluggish)
+export const SHIP_TURN_SPEED = 0.07; 
+export const SHIP_FRICTION = 0.99; 
+export const SHIP_MAX_SPEED = 8.0; // Base max speed (Starts slow)
 
-// --- COMBAT ---
-export const BULLET_SPEED = 18;
-export const BULLET_LIFE = 22; 
-export const BULLET_RATE = 5; 
-export const BULLET_DAMAGE = 7; 
+// --- COMBAT (Weak Start) ---
+export const BULLET_SPEED = 14; 
+export const BULLET_LIFE = 18;  
+export const BULLET_RATE = 20;  
+export const BULLET_DAMAGE = 10; 
 
 // --- ENEMIES ---
-export const ASTEROID_SPEED_BASE = 1.2;
-export const MOLTEN_SPEED_MULTIPLIER = 3.8; 
-export const ASTEROID_HULL_DAMAGE = 20; 
+export const ASTEROID_SPEED_BASE = 1.0; // Slightly slower base speed
+export const MOLTEN_SPEED_MULTIPLIER = 3.5; 
+export const ASTEROID_HULL_DAMAGE = 15; 
+export const ASTEROID_SMALL_DAMAGE = 5; 
 export const MOLTEN_SPAWN_RATE = 0.003; 
 export const HIT_FLASH_FRAMES = 4;
 
-// --- ECONOMY ---
-export const FUEL_DECAY_ON_THRUST = 0.08; 
-export const FUEL_DECAY_PASSIVE = 0.03; 
-export const FUEL_ORB_VALUE = 35; 
-export const FUEL_ORB_LIFE = 500;
-export const FUEL_DROP_CHANCE = 0.12; 
+// --- PROGRESSION GATES ---
+export const LEVEL_GATE_LARGE_ASTEROIDS = 2; 
+export const LEVEL_GATE_MOLTEN_SMALL = 3;    
+export const LEVEL_GATE_MOLTEN_LARGE = 6;    
 
-export const HULL_ORB_VALUE = 25;
-export const HULL_DROP_CHANCE = 0.06; 
+// --- ECONOMY (Less Panic) ---
+export const FUEL_DECAY_ON_THRUST = 0.05; // Base drain
+export const FUEL_DECAY_PASSIVE = 0.005; // Base passive drain
+export const FUEL_ORB_VALUE = 20; 
+export const FUEL_ORB_LIFE = 600; // Lasts longer
+export const FUEL_DROP_CHANCE = 0.25; // 1 in 4 rocks drops fuel
+
+export const HULL_ORB_VALUE = 20; 
+export const HULL_DROP_CHANCE = 0.10; 
 
 // --- LEVELING ---
-export const XP_BASE_REQ = 2000;
-export const XP_SCALING_FACTOR = 1.2; // Each level needs 20% more points than the last
+export const XP_BASE_REQ = 600; // Very fast first level up
+export const XP_SCALING_FACTOR = 1.3; 
 
 // --- UPGRADES ---
 export const UPGRADES: UpgradeDef[] = [
-    // SURVIVAL (Green)
+    // TECH (Green)
     {
-        id: 'efficiency',
-        name: 'Ion Recycler',
-        description: (t) => `Fuel Efficiency +${20}% (Tier ${t})`,
-        category: UpgradeCategory.SURVIVAL,
+        id: 'engine',
+        name: 'Plasmatron Thrusters',
+        description: (t) => `Acceleration & Max Speed +25% (Tier ${t})`,
+        category: UpgradeCategory.TECH,
         color: 'text-green-400 border-green-500 shadow-green-500/50'
     },
     {
         id: 'tank',
-        name: 'Expanded Reservoirs',
-        description: (t) => `Max Fuel Capacity +${30}% (Tier ${t})`,
-        category: UpgradeCategory.SURVIVAL,
+        name: 'Fusion Cells',
+        description: (t) => `Tank +40%, Efficiency +20%, Pickup +20% (Tier ${t})`,
+        category: UpgradeCategory.TECH,
         color: 'text-green-400 border-green-500 shadow-green-500/50'
     },
     {
         id: 'hull',
         name: 'Nanocarbon Plating',
-        description: (t) => `Max Hull +${25}% & Full Repair (Tier ${t})`,
-        category: UpgradeCategory.SURVIVAL,
+        description: (t) => `Max Hull +30% & Full Repair (Tier ${t})`,
+        category: UpgradeCategory.TECH,
         color: 'text-green-400 border-green-500 shadow-green-500/50'
     },
     
@@ -69,45 +75,45 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'rapidfire',
         name: 'Hyper-Cooling',
-        description: (t) => `Fire Rate +${15}% (Tier ${t})`,
+        description: (t) => `Fire Rate +20% (Tier ${t})`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
     {
-        id: 'damage',
-        name: 'Plasma Concentration',
-        description: (t) => `Bullet Damage +${25}% (Tier ${t})`,
+        id: 'multishot',
+        name: 'Splitfire Cannons',
+        description: (t) => t === 1 ? 'Double Barrel Cannon' : t === 2 ? 'Triple Spread Shot' : 'Penta-Shot Spread',
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
     {
         id: 'velocity',
         name: 'Magnetic Rails',
-        description: (t) => `Bullet Speed & Range +${20}% (Tier ${t})`,
+        description: (t) => `Bullet Speed & Range +25% (Tier ${t})`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
 
-    // TECH (Purple)
+    // ADD-ONS (Purple)
     {
-        id: 'wingman',
-        name: 'A.R.C. Drone',
-        description: (t) => t === 1 ? 'Deploy an auto-targeting drone' : `Drone Fire Rate +20% (Tier ${t})`,
-        category: UpgradeCategory.TECH,
+        id: 'drone',
+        name: 'A.R.C. Swarm',
+        description: (t) => `Add +1 Autonomous Drone (Tier ${t})`,
+        category: UpgradeCategory.ADDONS,
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     },
     {
         id: 'magnet',
         name: 'Tractor Beam',
-        description: (t) => `Orb Pickup Range +${50}px (Tier ${t})`,
-        category: UpgradeCategory.TECH,
+        description: (t) => `Orb Pickup Range +60px (Tier ${t})`,
+        category: UpgradeCategory.ADDONS,
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     },
     {
         id: 'shield',
         name: 'Molten Heat Shield',
         description: (t) => `Block ${t} Molten Hit${t>1?'s':''} (Recharge on Level Up)`,
-        category: UpgradeCategory.TECH,
+        category: UpgradeCategory.ADDONS,
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     }
 ];
