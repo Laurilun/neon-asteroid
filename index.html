@@ -35,6 +35,19 @@
 </script>
 </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+        <!-- Visual feedback if JS fails to load -->
+        <div style="display: flex; height: 100vh; justify-content: center; align-items: center; color: #333; font-family: 'Orbitron', monospace; text-align: center;">
+            <div>
+                <h1 style="color: #444; margin-bottom: 20px;">INITIALIZING VOID...</h1>
+                <p style="font-size: 12px; color: #222;">
+                    If this persists, ensure you are running this via a build server (like Vite)<br>
+                    because browsers cannot run .tsx files directly.
+                </p>
+            </div>
+        </div>
+    </div>
+    <!-- The missing link: Loading the React Entry Point -->
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
