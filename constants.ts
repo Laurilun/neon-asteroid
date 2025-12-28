@@ -7,44 +7,57 @@ export const CANVAS_HEIGHT = window.innerHeight;
 
 export const FPS = 60;
 
-// --- SHIP PHYSICS (Vampire Survivors Start: Slow & Heavy) ---
+// --- SHIP PHYSICS (Nerfed Start) ---
 export const SHIP_SIZE = 12; 
-export const SHIP_THRUST = 0.05; // Base acceleration (Starts very sluggish)
-export const SHIP_TURN_SPEED = 0.07; 
+export const SHIP_THRUST = 0.035; // Was 0.05
+export const SHIP_TURN_SPEED = 0.07; // Reverted to 0.07 (fast)
 export const SHIP_FRICTION = 0.99; 
-export const SHIP_MAX_SPEED = 8.0; // Base max speed (Starts slow)
+export const SHIP_MAX_SPEED = 6.0; // Was 8.0
 
-// --- COMBAT (Weak Start) ---
-export const BULLET_SPEED = 14; 
-export const BULLET_LIFE = 18;  
+export const SHIP_BASE_HULL = 60; // 3 hits from normal asteroids (20 dmg) = 60.
+
+// --- COMBAT (Nerfed Start) ---
+export const BULLET_SPEED = 12; // Was 14
+export const BULLET_LIFE = 14;  // Was 18 (Shorter range)
 export const BULLET_RATE = 20;  
 export const BULLET_DAMAGE = 10; 
 
 // --- ENEMIES ---
-export const ASTEROID_SPEED_BASE = 0.8; // Slightly slower base speed for weight
-export const MOLTEN_SPEED_MULTIPLIER = 2.0; // Reduced from 3.5 to 2.0 (Heavy threat, not missile)
-export const ASTEROID_HULL_DAMAGE = 15; 
-export const ASTEROID_SMALL_DAMAGE = 5; 
+export const ASTEROID_SPEED_BASE = 0.8; 
+export const MOLTEN_SPEED_MULTIPLIER = 2.0; 
+export const ASTEROID_HULL_DAMAGE = 20; // 3 hits to kill base ship
+export const ASTEROID_SMALL_DAMAGE = 8; 
 export const HIT_FLASH_FRAMES = 4;
-export const FORMATION_CHANCE = 0.15; // 15% chance to spawn a formation instead of single rock
+export const FORMATION_CHANCE = 0.15; 
+
+// FROZEN ASTEROID
+export const FROZEN_SPEED = 0.4;
+export const FROZEN_HP = 400; // Tanky
+export const FROZEN_AURA_RANGE = 200; // Increased
+export const FROZEN_AURA_DAMAGE = 0.1; // Per frame
+export const FROZEN_COLOR = '#06b6d4'; // Cyan 500
 
 // --- PROGRESSION GATES ---
 export const LEVEL_GATE_LARGE_ASTEROIDS = 2; 
 export const LEVEL_GATE_MOLTEN_SMALL = 3;    
+export const LEVEL_GATE_FROZEN = 4;
 export const LEVEL_GATE_MOLTEN_LARGE = 6;    
 
-// --- ECONOMY (Less Panic) ---
-export const FUEL_DECAY_ON_THRUST = 0.05; // Base drain
-export const FUEL_DECAY_PASSIVE = 0.005; // Base passive drain
+// --- ECONOMY ---
+export const FUEL_DECAY_ON_THRUST = 0.05; 
+export const FUEL_DECAY_PASSIVE = 0.005; 
 export const FUEL_ORB_VALUE = 20; 
-export const FUEL_ORB_LIFE = 600; // Lasts longer
-export const FUEL_DROP_CHANCE = 0.25; // 1 in 4 rocks drops fuel
+export const FUEL_ORB_LIFE = 600; 
+export const FUEL_DROP_CHANCE = 0.25; 
 
 export const HULL_ORB_VALUE = 20; 
 export const HULL_DROP_CHANCE = 0.10; 
 
+export const GOLD_ORB_VALUE = 250; // XP
+export const DROP_CONVERSION_THRESHOLD = 0.95; // 95%
+
 // --- LEVELING ---
-export const XP_BASE_REQ = 600; // Very fast first level up
+export const XP_BASE_REQ = 600; 
 export const XP_SCALING_FACTOR = 1.3; 
 
 // --- UPGRADES ---
@@ -53,7 +66,7 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'engine',
         name: 'Plasmatron Thrusters',
-        description: (t) => `Acceleration & Max Speed +25% (Tier ${t})`,
+        description: (t) => `Speed +25% (Tier ${t})`,
         category: UpgradeCategory.TECH,
         color: 'text-green-400 border-green-500 shadow-green-500/50'
     },
@@ -112,8 +125,15 @@ export const UPGRADES: UpgradeDef[] = [
     },
     {
         id: 'shield',
-        name: 'Molten Heat Shield',
-        description: (t) => `Block ${t} Molten Hit${t>1?'s':''} (Recharge on Level Up)`,
+        name: 'Emergency Shield',
+        description: (t) => `Prevents Death ${t} Time${t>1?'s':''} (2s Invuln)`,
+        category: UpgradeCategory.ADDONS,
+        color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
+    },
+    {
+        id: 'scavenger',
+        name: 'Void Scavenger',
+        description: (t) => `XP Gain +20% (Tier ${t})`,
         category: UpgradeCategory.ADDONS,
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     }
@@ -132,6 +152,7 @@ export const COLORS = {
   MOLTEN: '#ef4444', // Red 500
   FUEL: '#22c55e', // Green 500
   HULL: '#3b82f6', // Blue 500
+  GOLD: '#eab308', // Yellow 500
   TEXT: '#ffffff',
   FLASH: '#ffffff',
   DRONE: '#a855f7', // Purple 500

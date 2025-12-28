@@ -1,4 +1,5 @@
 
+
 export interface Vector {
   x: number;
   y: number;
@@ -8,10 +9,12 @@ export enum EntityType {
   Player = 'PLAYER',
   Asteroid = 'ASTEROID',
   MoltenAsteroid = 'MOLTEN_ASTEROID',
+  FrozenAsteroid = 'FROZEN_ASTEROID',
   Bullet = 'BULLET',
   Particle = 'PARTICLE',
   FuelOrb = 'FUEL_ORB',
   HullOrb = 'HULL_ORB',
+  GoldOrb = 'GOLD_ORB',
   Drone = 'DRONE',
 }
 
@@ -40,6 +43,7 @@ export interface ShipStats {
   maxShieldCharges: number;
   droneCount: number;     // Number of active drones
   multishotTier: number;  // 0 = single, 1 = double, 2 = triple, etc.
+  xpMult: number;         // Multiplier for XP gain (default 1.0)
 }
 
 export interface Ship extends Entity {
@@ -58,6 +62,9 @@ export interface Asteroid extends Entity {
   hp: number;
   sizeCategory: 1 | 2 | 3; // 3 = large, 2 = medium, 1 = small
   hitFlash: number; // Number of frames to render white
+  rotation: number; // Current visual rotation
+  rotationSpeed: number; // Radians per frame
+  pulsateOffset: number; // Offset for glow animation
 }
 
 export interface Bullet extends Entity {
@@ -77,6 +84,11 @@ export interface FuelOrb extends Entity {
 }
 
 export interface HullOrb extends Entity {
+  life: number;
+  pulsateOffset: number;
+}
+
+export interface GoldOrb extends Entity {
   life: number;
   pulsateOffset: number;
 }
