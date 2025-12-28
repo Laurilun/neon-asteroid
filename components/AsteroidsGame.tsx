@@ -1,3 +1,5 @@
+
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { 
   Asteroid, Bullet, EntityType, GameState, Particle, Ship, FuelOrb, HullOrb, GoldOrb, Vector, Drone, UpgradeCategory, UpgradeDef, Entity
@@ -11,7 +13,8 @@ import {
   HIT_FLASH_FRAMES, SCREEN_SHAKE_DECAY,
   UPGRADES, XP_BASE_REQ, XP_SCALING_FACTOR,
   LEVEL_GATE_LARGE_ASTEROIDS, LEVEL_GATE_MOLTEN_SMALL, LEVEL_GATE_MOLTEN_LARGE, FORMATION_CHANCE,
-  LEVEL_GATE_FROZEN, FROZEN_HP, FROZEN_SPEED, FROZEN_COLOR, FROZEN_AURA_RANGE, FROZEN_AURA_DAMAGE
+  LEVEL_GATE_FROZEN, FROZEN_HP, FROZEN_SPEED, FROZEN_COLOR, FROZEN_AURA_RANGE, FROZEN_AURA_DAMAGE,
+  LEVEL_GATE_IRON, IRON_SPEED, IRON_HP_MULT, IRON_DAMAGE, IRON_KNOCKBACK, IRON_COLOR
 } from '../constants';
 
 // --- Utility Functions ---
@@ -109,6 +112,7 @@ const AsteroidsGame: React.FC = () => {
   const spawnTimerRef = useRef<number>(0); // Cooldown between individual spawns
   const moltenTimerRef = useRef<number>(0); // Cooldown for molten events
   const frozenTimerRef = useRef<number>(0); // Cooldown for frozen events
+  const ironTimerRef = useRef<number>(0); // Cooldown for iron events
 
   // HUD DOM Refs
   const fuelBarRef = useRef<HTMLDivElement>(null);
@@ -169,6 +173,7 @@ const AsteroidsGame: React.FC = () => {
     spawnTimerRef.current = 60; 
     moltenTimerRef.current = 600; 
     frozenTimerRef.current = 900;
+    ironTimerRef.current = 400; 
     
     // Dev Mode Initialization
     const initialLevel = isDevMode ? startLevel : 1;
@@ -211,71 +216,50 @@ const AsteroidsGame: React.FC = () => {
       // Pick a side to spawn from
       const edge = Math.floor(Math.random() * 4);
       // Increased buffer so wide formations spawn fully off-screen before entering
-      const buffer = 200; 
-      let startPos = {x:0, y:0};
+      const buffer = 250; 
+      let startCenter = {x:0, y:0};
       
       // Determine center point of formation
       switch(edge) {
-          case 0: startPos = { x: cw/2, y: -buffer }; break; // Top
-          case 1: startPos = { x: cw + buffer, y: ch/2 }; break; // Right
-          case 2: startPos = { x: cw/2, y: ch + buffer }; break; // Bottom
-          case 3: startPos = { x: -buffer, y: ch/2 }; break; // Left
+          case 0: startCenter = { x: randomRange(100, cw - 100), y: -buffer }; break; // Top
+          case 1: startCenter = { x: cw + buffer, y: randomRange(100, ch - 100) }; break; // Right
+          case 2: startCenter = { x: randomRange(100, cw - 100), y: ch + buffer }; break; // Bottom
+          case 3: startCenter = { x: -buffer, y: randomRange(100, ch - 100) }; break; // Left
       }
 
-      // Add randomness to start point along the edge, keeping away from corners to avoid clipping immediately
-      if(edge === 0 || edge === 2) startPos.x = randomRange(200, cw - 200);
-      else startPos.y = randomRange(200, ch - 200);
-
       // Aim towards general center of screen
-      const centerX = cw / 2 + randomRange(-150, 150);
-      const centerY = ch / 2 + randomRange(-150, 150);
-      const angle = Math.atan2(centerY - startPos.y, centerX - startPos.x);
+      const screenCenterX = cw / 2 + randomRange(-100, 100);
+      const screenCenterY = ch / 2 + randomRange(-100, 100);
+      const angle = Math.atan2(screenCenterY - startCenter.y, screenCenterX - startCenter.x);
       
       const speedMult = 1 + (currentLevel * 0.05);
-      const speed = ASTEROID_SPEED_BASE * speedMult;
-      const vel = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
+      const baseSpeed = ASTEROID_SPEED_BASE * speedMult;
       
-      // Formation vector (perpendicular to velocity)
-      const perpAngle = angle + Math.PI / 2;
-      const px = Math.cos(perpAngle);
-      const py = Math.sin(perpAngle);
-      
-      const formationType = Math.random() < 0.5 ? 'LINE' : 'V_SHAPE';
-      
-      // Logic for spacing: Must prevent overlap and cover area
-      const sizeCat = getWeightedAsteroidSize(currentLevel); 
-      const radius = sizeCat === 3 ? 65 : sizeCat === 2 ? 35 : 18;
-      
-      // Minimum spacing is Diameter (2*r) + Gap (e.g. 50px).
-      // We want them spread out, so let's add considerable gap (80-150px)
-      const gap = randomRange(80, 150);
-      const spacing = (radius * 2) + gap;
-
-      // Count: Ensure enough asteroids to make the formation threatening given the wide spacing
-      // 3 to 5 asteroids
-      const count = 3 + Math.floor(Math.random() * 3); 
+      // Determine formation count (3 to 6)
+      const count = 3 + Math.floor(Math.random() * 4); 
 
       for(let i=0; i<count; i++) {
-          let offset = 0;
-          let forwardOffset = 0;
+          // Natural Clustering ("Cloud" or "Swarm" style)
+          // Random offset from the center point
+          const spread = 80; 
+          const offsetX = randomRange(-spread, spread);
+          const offsetY = randomRange(-spread, spread);
           
-          if (formationType === 'LINE') {
-              offset = (i - (count-1)/2) * spacing;
-              // Slight organic stagger for lines
-              forwardOffset = randomRange(-30, 30);
-          } else {
-              // V-Shape
-              const side = i % 2 === 0 ? 1 : -1;
-              const idx = Math.ceil(i/2);
-              offset = idx * spacing * side;
-              forwardOffset = -Math.abs(idx * (spacing * 0.5)); // Deep V
-          }
-
           const pos = {
-              x: startPos.x + (px * offset) + (Math.cos(angle) * forwardOffset),
-              y: startPos.y + (py * offset) + (Math.sin(angle) * forwardOffset)
+              x: startCenter.x + offsetX,
+              y: startCenter.y + offsetY
           };
 
+          // Slight velocity variation for organic drift
+          const speedVar = baseSpeed * randomRange(0.8, 1.2);
+          const angleVar = angle + randomRange(-0.1, 0.1);
+          
+          const vel = {
+              x: Math.cos(angleVar) * speedVar,
+              y: Math.sin(angleVar) * speedVar
+          };
+
+          const sizeCat = getWeightedAsteroidSize(currentLevel); 
           createAsteroid(pos, vel, sizeCat);
       }
   };
@@ -370,6 +354,62 @@ const AsteroidsGame: React.FC = () => {
           rotationSpeed: randomRange(-0.01, 0.01),
           pulsateOffset: Math.random() * Math.PI * 2
       });
+  };
+
+  const spawnIronSwarm = (cw: number, ch: number, currentLevel: number) => {
+      const edge = Math.floor(Math.random() * 4); 
+      let startPos = { x: 0, y: 0 };
+      let target = { x: 0, y: 0 };
+      const offset = 150;
+
+      // Iron asteroids fly across screen quickly
+      switch(edge) {
+          case 0: startPos = { x: Math.random() * cw, y: -offset }; target = { x: Math.random() * cw, y: ch + offset }; break;
+          case 1: startPos = { x: cw + offset, y: Math.random() * ch }; target = { x: -offset, y: Math.random() * ch }; break;
+          case 2: startPos = { x: Math.random() * cw, y: ch + offset }; target = { x: Math.random() * cw, y: -offset }; break;
+          case 3: startPos = { x: -offset, y: Math.random() * ch }; target = { x: cw + offset, y: Math.random() * ch }; break;
+      }
+
+      const angle = Math.atan2(target.y - startPos.y, target.x - startPos.x) + (Math.random() - 0.5) * 0.3;
+      const speed = IRON_SPEED * (1 + currentLevel * 0.05);
+      
+      // Spawn 3 in a tight swarm (shotgun pattern)
+      for(let i = 0; i < 3; i++) {
+          const sizeCat = Math.random() < 0.6 ? 1 : 2;
+          const radius = sizeCat === 2 ? 30 : 15;
+          const hp = (sizeCat === 2 ? 50 : 20) * IRON_HP_MULT * (1 + currentLevel * 0.1);
+          
+          // Spread logic
+          const spread = 60;
+          const pos = {
+              x: startPos.x + randomRange(-spread, spread),
+              y: startPos.y + randomRange(-spread, spread)
+          };
+          
+          // Slight velocity variance so they separate over time
+          const vel = {
+              x: Math.cos(angle) * speed * randomRange(0.9, 1.1),
+              y: Math.sin(angle) * speed * randomRange(0.9, 1.1)
+          };
+
+          asteroidsRef.current.push({
+              id: Math.random().toString(36).substr(2, 9),
+              type: EntityType.IronAsteroid,
+              pos: pos,
+              vel: vel,
+              radius: radius,
+              angle: 0,
+              color: IRON_COLOR, 
+              toBeRemoved: false,
+              vertices: generatePolygon(radius, 6 + sizeCat * 2, 5), // Blockier
+              hp: hp, 
+              sizeCategory: sizeCat,
+              hitFlash: 0,
+              rotation: Math.random() * Math.PI * 2,
+              rotationSpeed: randomRange(-0.05, 0.05), // Spin fast
+              pulsateOffset: Math.random() * Math.PI * 2
+          });
+      }
   };
 
   const spawnFrozenAsteroid = (cw: number, ch: number, currentLevel: number) => {
@@ -727,6 +767,17 @@ const AsteroidsGame: React.FC = () => {
             }
         }
 
+        // 4. Iron Threats
+        if (level >= LEVEL_GATE_IRON) {
+            if (ironTimerRef.current > 0) {
+                ironTimerRef.current--;
+            } else {
+                spawnIronSwarm(cw, ch, level);
+                const minCooldown = Math.max(200, 600 - (level * 30)); // Faster spawns than Molten
+                ironTimerRef.current = minCooldown + randomRange(0, 200);
+            }
+        }
+
         // Apply Stats
         const stats = ship.stats;
 
@@ -871,7 +922,7 @@ const AsteroidsGame: React.FC = () => {
             
             if (a.hitFlash > 0) a.hitFlash--;
             
-            if (a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid) {
+            if (a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid || a.type === EntityType.IronAsteroid) {
                 const buffer = 200;
                 if (a.pos.x < -buffer || a.pos.x > cw + buffer || a.pos.y < -buffer || a.pos.y > ch + buffer) {
                     a.toBeRemoved = true;
@@ -971,7 +1022,10 @@ const AsteroidsGame: React.FC = () => {
                     if (a.hp <= 0) {
                         a.toBeRemoved = true;
                         screenShakeRef.current = a.sizeCategory * 2;
-                        const ptVal = a.type === EntityType.MoltenAsteroid ? 1000 : a.type === EntityType.FrozenAsteroid ? 800 : 100 * a.sizeCategory;
+                        const ptVal = a.type === EntityType.MoltenAsteroid ? 1000 : 
+                                      a.type === EntityType.FrozenAsteroid ? 800 : 
+                                      a.type === EntityType.IronAsteroid ? 1200 :
+                                      100 * a.sizeCategory;
                         
                         // XP Multiplier
                         setScore(s => s + Math.floor(ptVal * (ship?.stats.xpMult || 1)));
@@ -1026,41 +1080,55 @@ const AsteroidsGame: React.FC = () => {
                      if (checkShipCollision(ship, a)) {
                          if (a.type === EntityType.MoltenAsteroid) {
                              if (ship.stats.shieldCharges > 0) {
+                                 // Shield Save (Molten)
                                  ship.stats.shieldCharges--;
                                  a.toBeRemoved = true; 
                                  spawnParticles(a.pos, COLORS.MOLTEN, 40, 8);
                                  screenShakeRef.current = 20;
                                  ship.invulnerableUntil = Date.now() + 2000;
                                  spawnFloatingText(ship.pos, "SHIELD SAVED!", COLORS.SHIELD, 20);
+                                 // Visual feedback for shield break
                                  spawnParticles(ship.pos, COLORS.SHIELD, 30, 5);
                              } else {
                                  handleGameOver("Molten Incineration");
                                  ship.toBeRemoved = true;
                              }
                          } else {
-                             screenShakeRef.current = 6;
-                             if (a.sizeCategory === 1) {
+                             // Standard or Iron Collision
+                             
+                             // Calculate hit params
+                             let knockback = 9;
+                             let damage = ASTEROID_HULL_DAMAGE;
+                             if (a.type === EntityType.IronAsteroid) {
+                                 knockback = IRON_KNOCKBACK;
+                                 damage = IRON_DAMAGE;
+                             }
+
+                             if (a.sizeCategory === 1 && a.type !== EntityType.IronAsteroid) { // Iron asteroids don't break on impact even if small
                                  a.toBeRemoved = true;
                                  spawnParticles(a.pos, a.color, 10, 4);
                                  ship.hull -= ASTEROID_SMALL_DAMAGE;
                                  setScore(s => s + 50);
                                  spawnFloatingText(ship.pos, `-${ASTEROID_SMALL_DAMAGE} HP`, COLORS.TEXT, 12);
+                                 screenShakeRef.current = 6;
                              } else {
                                  const angle = Math.atan2(ship.pos.y - a.pos.y, ship.pos.x - a.pos.x);
-                                 const pushForce = 9;
-                                 ship.vel.x += Math.cos(angle) * pushForce;
-                                 ship.vel.y += Math.sin(angle) * pushForce;
-                                 ship.hull -= ASTEROID_HULL_DAMAGE;
+                                 ship.vel.x += Math.cos(angle) * knockback;
+                                 ship.vel.y += Math.sin(angle) * knockback;
+                                 ship.hull -= damage;
                                  if (a.type !== EntityType.FrozenAsteroid) a.hitFlash = HIT_FLASH_FRAMES;
                                  spawnParticles(ship.pos, COLORS.SHIP, 15, 6);
                                  ship.invulnerableUntil = Date.now() + 300;
-                                 spawnFloatingText(ship.pos, `-${ASTEROID_HULL_DAMAGE} HP`, '#ff0000', 16);
+                                 spawnFloatingText(ship.pos, `-${damage} HP`, '#ff0000', 16);
+                                 screenShakeRef.current = a.type === EntityType.IronAsteroid ? 15 : 6;
                              }
-                             
+
+                             // Check for Lethal Damage & Shield Save
                              if (ship.hull <= 0) {
-                                  if (ship.stats.shieldCharges > 0) {
+                                 if (ship.stats.shieldCharges > 0) {
+                                     // Shield Save (Lethal Hull Damage)
                                      ship.stats.shieldCharges--;
-                                     ship.hull = 1; 
+                                     ship.hull = 1; // Prevent death
                                      ship.invulnerableUntil = Date.now() + 2000;
                                      spawnFloatingText(ship.pos, "SHIELD SAVED!", COLORS.SHIELD, 20);
                                      screenShakeRef.current = 15;
@@ -1156,11 +1224,11 @@ const AsteroidsGame: React.FC = () => {
           const drawPath = (jitter: number = 0) => {
               ctx.beginPath();
               if (a.vertices.length > 0) {
-                  const isMoltenOrFrozen = a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid;
+                  const isSpecial = a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid || a.type === EntityType.IronAsteroid;
                   const v0 = a.vertices[0];
-                  ctx.moveTo(v0.x + (isMoltenOrFrozen ? randomRange(-jitter, jitter) : 0), v0.y + (isMoltenOrFrozen ? randomRange(-jitter, jitter) : 0));
+                  ctx.moveTo(v0.x + (isSpecial ? randomRange(-jitter, jitter) : 0), v0.y + (isSpecial ? randomRange(-jitter, jitter) : 0));
                   for (let i = 1; i < a.vertices.length; i++) {
-                      ctx.lineTo(a.vertices[i].x + (isMoltenOrFrozen ? randomRange(-jitter, jitter) : 0), a.vertices[i].y + (isMoltenOrFrozen ? randomRange(-jitter, jitter) : 0));
+                      ctx.lineTo(a.vertices[i].x + (isSpecial ? randomRange(-jitter, jitter) : 0), a.vertices[i].y + (isSpecial ? randomRange(-jitter, jitter) : 0));
                   }
               }
               ctx.closePath();
@@ -1176,7 +1244,8 @@ const AsteroidsGame: React.FC = () => {
              ctx.shadowBlur = 0;
              const isMolten = a.type === EntityType.MoltenAsteroid;
              const isFrozen = a.type === EntityType.FrozenAsteroid;
-             const isSpecial = isMolten || isFrozen;
+             const isIron = a.type === EntityType.IronAsteroid;
+             const isSpecial = isMolten || isFrozen || isIron;
 
              // Pass 1: Glow / Beam
              drawPath(isSpecial ? 2.5 : 1.5); 
@@ -1187,15 +1256,15 @@ const AsteroidsGame: React.FC = () => {
 
              // Pass 2: Core
              drawPath(isSpecial ? 1.0 : 0.5); 
-             ctx.strokeStyle = isMolten ? '#fff5f5' : isFrozen ? '#e0f2fe' : '#ffffff';
+             ctx.strokeStyle = isMolten ? '#fff5f5' : isFrozen ? '#e0f2fe' : isIron ? '#fcd34d' : '#ffffff';
              ctx.lineWidth = isSpecial ? 2 : 1.5;
              ctx.globalAlpha = 1.0;
              ctx.stroke();
              
              if (isSpecial) {
-                 // Molten/Frozen inner fill (Cleaned up: Removed the chaotic lines loop)
+                 // Inner fill for specials
                  ctx.fillStyle = a.color;
-                 ctx.globalAlpha = 0.3; 
+                 ctx.globalAlpha = isIron ? 0.6 : 0.3; // Iron looks more solid/dense
                  ctx.fill(); 
              }
           }

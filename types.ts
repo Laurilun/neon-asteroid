@@ -10,6 +10,7 @@ export enum EntityType {
   Asteroid = 'ASTEROID',
   MoltenAsteroid = 'MOLTEN_ASTEROID',
   FrozenAsteroid = 'FROZEN_ASTEROID',
+  IronAsteroid = 'IRON_ASTEROID',
   Bullet = 'BULLET',
   Particle = 'PARTICLE',
   FuelOrb = 'FUEL_ORB',

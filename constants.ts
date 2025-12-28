@@ -37,9 +37,17 @@ export const FROZEN_AURA_RANGE = 200; // Increased
 export const FROZEN_AURA_DAMAGE = 0.1; // Per frame
 export const FROZEN_COLOR = '#06b6d4'; // Cyan 500
 
+// IRON ORE ASTEROID (New)
+export const IRON_SPEED = 4.5; // Super fast (was 3.0)
+export const IRON_HP_MULT = 6.0; // Extremely durable
+export const IRON_DAMAGE = 15; // Moderate damage
+export const IRON_KNOCKBACK = 30; // Massive knockback
+export const IRON_COLOR = '#8c3515'; // Rusty Red-Brown
+
 // --- PROGRESSION GATES ---
 export const LEVEL_GATE_LARGE_ASTEROIDS = 2; 
 export const LEVEL_GATE_MOLTEN_SMALL = 3;    
+export const LEVEL_GATE_IRON = 3;            // Starts appearing early but rare
 export const LEVEL_GATE_FROZEN = 4;
 export const LEVEL_GATE_MOLTEN_LARGE = 6;    
 
@@ -157,4 +165,5 @@ export const COLORS = {
   FLASH: '#ffffff',
   DRONE: '#a855f7', // Purple 500
   SHIELD: '#d8b4fe', // Purple 300
+  IRON: '#8c3515', // Rusty Brown
 };
