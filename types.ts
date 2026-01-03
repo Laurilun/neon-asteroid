@@ -1,5 +1,4 @@
 
-
 export interface Vector {
   x: number;
   y: number;
@@ -13,9 +12,8 @@ export enum EntityType {
   IronAsteroid = 'IRON_ASTEROID',
   Bullet = 'BULLET',
   Particle = 'PARTICLE',
-  FuelOrb = 'FUEL_ORB',
+  ExpOrb = 'EXP_ORB', 
   HullOrb = 'HULL_ORB',
-  GoldOrb = 'GOLD_ORB',
   Drone = 'DRONE',
 }
 
@@ -31,11 +29,9 @@ export interface Entity {
 }
 
 export interface ShipStats {
-  fuelEfficiency: number; // Multiplier for decay (default 1.0, lower is better)
-  fuelRecoveryMult: number; // Multiplier for orb value (default 1.0, higher is better)
+  regenRate: number;      // Hull repaired per frame
   thrustMult: number;     // Multiplier for engine acceleration (default 1.0)
   speedMult: number;      // Multiplier for max speed (default 1.0)
-  maxFuelMult: number;    // Multiplier (default 1.0)
   maxHullMult: number;    // Multiplier (default 1.0)
   fireRateMult: number;   // Multiplier (default 1.0, lower is faster)
   bulletSpeedMult: number;// Multiplier (default 1.0)
@@ -43,6 +39,8 @@ export interface ShipStats {
   shieldCharges: number;  // Current charges
   maxShieldCharges: number;
   droneCount: number;     // Number of active drones
+  droneFireRateMult: number; // Drone specific fire rate
+  droneGunCount: number;     // Guns per drone
   multishotTier: number;  // 0 = single, 1 = double, 2 = triple, etc.
   xpMult: number;         // Multiplier for XP gain (default 1.0)
 }
@@ -50,12 +48,11 @@ export interface ShipStats {
 export interface Ship extends Entity {
   rotation: number; // Current rotation angle
   thrusting: boolean;
-  fuel: number;
-  maxFuel: number; // Base value
   hull: number;
   maxHull: number; // Base value
   invulnerableUntil: number;
   stats: ShipStats;
+  isFrozen: boolean; // Track if currently in a slow field
 }
 
 export interface Asteroid extends Entity {
@@ -77,20 +74,18 @@ export interface Particle extends Entity {
   life: number;
   maxLife: number;
   decay: number;
+  variant?: 'THRUST' | 'DEBRIS' | 'SHOCKWAVE';
 }
 
-export interface FuelOrb extends Entity {
-  life: number;
+export interface ExpOrb extends Entity {
+  // life removed - persistent
+  value: number;
+  variant: 'NORMAL' | 'SUPER';
   pulsateOffset: number;
 }
 
 export interface HullOrb extends Entity {
-  life: number;
-  pulsateOffset: number;
-}
-
-export interface GoldOrb extends Entity {
-  life: number;
+  // life removed - persistent
   pulsateOffset: number;
 }
 
@@ -98,6 +93,8 @@ export interface Drone extends Entity {
   targetId: string | null;
   orbitOffset: number; // Offset angle in the swarm ring
   lastShot: number;
+  // Physics for organic movement
+  targetPos: Vector; 
 }
 
 export enum GameState {
@@ -108,13 +105,14 @@ export enum GameState {
 }
 
 export enum UpgradeCategory {
-  TECH = 'TECH',       // Green (was Survival)
+  TECH = 'TECH',       // Green
   COMBAT = 'COMBAT',   // Red
-  ADDONS = 'ADD-ONS'   // Purple (was Tech)
+  ADDONS = 'ADD-ONS'   // Purple
 }
 
 export interface UpgradeDef {
   id: string;
+  parentId?: string; // If present, this upgrade only appears if parentId is active
   name: string;
   description: (tier: number) => string;
   category: UpgradeCategory;
