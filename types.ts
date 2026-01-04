@@ -12,7 +12,7 @@ export enum EntityType {
   IronAsteroid = 'IRON_ASTEROID',
   Bullet = 'BULLET',
   Particle = 'PARTICLE',
-  ExpOrb = 'EXP_ORB', 
+  ExpOrb = 'EXP_ORB',
   HullOrb = 'HULL_ORB',
   Drone = 'DRONE',
 }
@@ -29,20 +29,22 @@ export interface Entity {
 }
 
 export interface ShipStats {
-  regenRate: number;      // Hull repaired per frame
+  regenRate: number;      // Hull repaired per second
   thrustMult: number;     // Multiplier for engine acceleration (default 1.0)
   speedMult: number;      // Multiplier for max speed (default 1.0)
   maxHullMult: number;    // Multiplier (default 1.0)
   fireRateMult: number;   // Multiplier (default 1.0, lower is faster)
-  bulletSpeedMult: number;// Multiplier (default 1.0)
   pickupRange: number;    // Pixels (default 50)
   shieldCharges: number;  // Current charges
   maxShieldCharges: number;
   droneCount: number;     // Number of active drones
   droneFireRateMult: number; // Drone specific fire rate
-  droneGunCount: number;     // Guns per drone
   multishotTier: number;  // 0 = single, 1 = double, 2 = triple, etc.
   xpMult: number;         // Multiplier for XP gain (default 1.0)
+  // New stats for rebalance
+  rangeTier: number;      // Range + damage upgrade tier
+  ricochetTier: number;   // Ricochet upgrade tier (max bounces)
+  damageMult: number;     // Base damage multiplier (from range upgrade)
 }
 
 export interface Ship extends Entity {
@@ -68,6 +70,11 @@ export interface Asteroid extends Entity {
 export interface Bullet extends Entity {
   life: number;
   damage: number; // Snapshot damage at time of firing
+  bouncesRemaining: number; // Ricochet bounces left
+  hitChainIds?: string[]; // All asteroids already hit in this ricochet chain
+  trail?: Vector[]; // Previous positions for trail effect
+  isRicochet?: boolean; // Mark as ricochet bullet for special rendering
+  bounceDepth?: number; // How many bounces deep (0 = first bounce)
 }
 
 export interface Particle extends Entity {
@@ -94,7 +101,7 @@ export interface Drone extends Entity {
   orbitOffset: number; // Offset angle in the swarm ring
   lastShot: number;
   // Physics for organic movement
-  targetPos: Vector; 
+  targetPos: Vector;
 }
 
 export enum GameState {

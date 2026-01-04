@@ -1,79 +1,245 @@
 
 import { UpgradeCategory, UpgradeDef } from './types';
 
+// ============================================================================
+// NEON ASTEROID - GAME CONSTANTS
+// ============================================================================
+// This file contains all tweakable game values. Adjust these to balance
+// gameplay, difficulty, and feel. Each section is clearly labeled.
+// ============================================================================
+
 export const CANVAS_WIDTH = window.innerWidth;
 export const CANVAS_HEIGHT = window.innerHeight;
-
 export const FPS = 60;
 
-// --- SHIP PHYSICS ---
-export const SHIP_SIZE = 12;
-export const SHIP_THRUST = 0.035;
-export const SHIP_TURN_SPEED = 0.045; // Reduced from 0.07 for better control
-export const SHIP_FRICTION = 0.99;
-export const SHIP_MAX_SPEED = 6.0;
+// ============================================================================
+// SHIP - Player ship physics and base stats
+// ============================================================================
 
-export const SHIP_BASE_HULL = 100;
+export const SHIP_SIZE = 12;                    // Ship triangle size in pixels
+export const SHIP_THRUST = 0.035;               // Acceleration per frame when thrusting
+export const SHIP_TURN_SPEED = 0.045;           // Rotation speed in radians per frame
+export const SHIP_FRICTION = 0.99;              // Velocity multiplier per frame (1 = no friction)
+export const SHIP_MAX_SPEED = 6.0;              // Maximum velocity magnitude
+export const SHIP_BASE_HULL = 100;              // Starting hull points
 
-// --- COMBAT ---
-export const BULLET_SPEED = 12;
-export const BULLET_LIFE = 16;
-export const BULLET_RATE = 20;
-export const BULLET_DAMAGE = 10;
+// ============================================================================
+// COMBAT - Bullets and invulnerability
+// ============================================================================
 
-// --- ENEMIES ---
-export const ASTEROID_SPEED_BASE = 0.8;
-export const MOLTEN_SPEED_MULTIPLIER = 2.2; // High speed threat
-export const ASTEROID_HULL_DAMAGE = 20;
-export const ASTEROID_SMALL_DAMAGE = 8;
-export const HIT_FLASH_FRAMES = 4;
-export const FORMATION_CHANCE = 0.25;
+// Bullets
+export const BULLET_SPEED = 12;                 // Bullet velocity
+export const BULLET_LIFE = 16;                  // Frames before bullet disappears
+export const BULLET_RATE = 20;                  // Frames between shots (lower = faster)
+export const BULLET_DAMAGE = 10;                // Damage per bullet hit
 
-// FROZEN ASTEROID
-export const FROZEN_SPEED = 0.4;
-export const FROZEN_HP = 400; // Tanky
-export const FROZEN_AURA_RANGE = 220;
-export const FROZEN_AURA_DAMAGE = 0.1;
-export const FROZEN_COLOR = '#06b6d4'; // Cyan 500
-export const FROZEN_SLOW_FACTOR = 0.4; // 60% Slow
+// Invulnerability (in milliseconds)
+export const INVULN_DURATION_SHIELD = 2000;     // Invuln after shield saves you
+export const INVULN_DURATION_HIT = 300;         // Brief invuln after taking damage
+export const INVULN_BLINK_RATE = 100;           // Ship blink cycle during invuln
 
-// IRON ORE ASTEROID
-export const IRON_SPEED = 5.5;
-export const IRON_HP_MULT = 5.0;
-export const IRON_DAMAGE = 15;
-export const IRON_KNOCKBACK = 35;
-export const IRON_COLOR = '#7c2d12'; // Rusty/Dark Iron
+// ============================================================================
+// ENEMIES - All asteroid types and their properties
+// ============================================================================
 
-// --- PROGRESSION GATES ---
+// --- Regular Asteroids ---
+// Size categories: 1=Small, 2=Medium, 3=Large
+export const ASTEROID_RADIUS = { SMALL: 18, MEDIUM: 35, LARGE: 65 };
+export const ASTEROID_HP_BASE = { SMALL: 20, MEDIUM: 50, LARGE: 150 };
+export const ASTEROID_HP_SCALING = 0.1;         // +10% HP per player level
+export const ASTEROID_SPEED_BASE = 0.8;         // Base movement speed
+export const ASTEROID_ROTATION_SPEED = 0.02;    // Max rotation per frame
+export const ASTEROID_HULL_DAMAGE = 20;         // Damage to player from medium/large
+export const ASTEROID_SMALL_DAMAGE = 8;         // Damage from small asteroids
+
+// --- Molten Asteroids (Fast, deadly) ---
+export const MOLTEN_SPEED_MULTIPLIER = 2.2;     // Speed relative to base
+export const MOLTEN_RADIUS = { SMALL: 20, LARGE: 45 };
+export const MOLTEN_HP = { SMALL: 30, LARGE: 100 };
+
+// --- Iron Asteroids (Armored swarm) ---
+export const IRON_SPEED = 5.5;                  // Very fast
+export const IRON_HP_MULT = 5.0;                // HP multiplier vs regular asteroids
+export const IRON_DAMAGE = 15;                  // Damage on collision
+export const IRON_KNOCKBACK = 35;               // Pushback force on hit
+export const IRON_RADIUS = { SMALL: 15, MEDIUM: 30 };
+export const IRON_COLOR = '#7c2d12';            // Rusty/Dark Iron
+
+// --- Frozen Asteroids (Slow aura hazard) ---
+export const FROZEN_SPEED = 0.4;                // Slow-moving
+export const FROZEN_HP = 400;                   // Very tanky
+export const FROZEN_RADIUS = 60;                // Large size
+export const FROZEN_AURA_RANGE = 220;           // Slowing aura radius
+export const FROZEN_AURA_DAMAGE = 0.1;          // Damage per frame in aura
+export const FROZEN_SLOW_FACTOR = 0.4;          // 60% speed reduction in aura
+export const FROZEN_COLOR = '#06b6d4';          // Cyan
+
+// ============================================================================
+// SPAWNING - Formation patterns and spawn rates
+// ============================================================================
+
+// Formation Spawning
+export const FORMATION_CHANCE = 0.25;           // Chance to spawn formation vs single
+export const FORMATION_COUNT = { MIN: 6, MAX: 10 }; // Asteroids per formation
+export const FORMATION_SPREAD = 300;            // Position spread in formation
+export const FORMATION_BUFFER = 300;            // Spawn distance from screen edge
+export const FORMATION_SPEED_MULT = 1.1;        // Speed boost for formation asteroids
+
+// Single Asteroid Spawning
+export const SINGLE_SPAWN_BUFFER = 80;          // Spawn distance from edge
+
+// Level-based Scaling
+export const LEVEL_SPEED_SCALING = 0.05;        // +5% asteroid speed per level
+export const TARGET_DENSITY_BASE = 4;           // Minimum asteroids on screen
+export const TARGET_DENSITY_SCALING = 10;       // Max additional asteroids (caps at level 10)
+
+// Spawn Rates (frames @ 60 FPS)
+export const SPAWN_RATES = {
+    MOLTEN: { START: 1000, MIN: 350, DECREASE: 50, VARIANCE: 300 },
+    IRON: { START: 1200, MIN: 600, DECREASE: 40, VARIANCE: 300 },
+    FROZEN: { START: 1800, MIN: 900, DECREASE: 80, VARIANCE: 600 }
+};
+
+// Progression Gates (level required to spawn)
 export const LEVEL_GATE_LARGE_ASTEROIDS = 2;
 export const LEVEL_GATE_MOLTEN_SMALL = 3;
 export const LEVEL_GATE_IRON = 4;
 export const LEVEL_GATE_FROZEN = 5;
 export const LEVEL_GATE_MOLTEN_LARGE = 8;
 
-// --- SPAWN RATES (Frames @ 60FPS) ---
-export const SPAWN_RATES = {
-    MOLTEN: { START: 1000, MIN: 350, DECREASE: 50, VARIANCE: 300 },
-    IRON: { START: 1200, MIN: 600, DECREASE: 40, VARIANCE: 300 }, // Less frequent
-    FROZEN: { START: 1800, MIN: 900, DECREASE: 80, VARIANCE: 600 }
+// Iron Swarm
+export const IRON_SWARM_COUNT = { MIN: 3, MAX: 4 };
+export const IRON_SWARM_SPREAD = 70;            // Position spread in swarm
+
+// ============================================================================
+// DRONES - Autonomous companion orbiters
+// ============================================================================
+
+// Orbit Behavior
+export const DRONE_ORBIT_RADIUS = 55;           // Base orbit distance from player
+export const DRONE_ORBIT_VARIANCE = 10;         // Breathing radius variation
+export const DRONE_ORBIT_SPEED = 0.015;         // Radians per frame
+
+// Wander (organic movement noise)
+export const DRONE_WANDER_X = 15;               // Horizontal wander amplitude
+export const DRONE_WANDER_Y = 15;               // Vertical wander amplitude
+
+// Spring Physics
+export const DRONE_SPRING = 0.04;               // Spring strength (lower = floatier)
+export const DRONE_DAMPING = 0.92;              // Velocity damping (higher = smoother)
+
+// Separation (avoid stacking)
+export const DRONE_SEPARATION_DIST = 20;        // Min distance between drones
+export const DRONE_SEPARATION_FORCE = 0.05;     // Push strength when too close
+
+// Combat
+export const DRONE_TELEPORT_DIST = 400;         // Max distance before teleport back
+export const DRONE_TARGET_RANGE = 450;          // Max targeting distance
+export const DRONE_BASE_FIRE_RATE = 30;         // Frames between shots
+export const DRONE_RECOIL = 1.5;                // Recoil velocity on shoot
+export const DRONE_GUN_SPREAD = 0.15;           // Angle spread for multi-gun
+
+// ============================================================================
+// ECONOMY - Orbs, XP, and loot
+// ============================================================================
+
+// XP Orbs
+export const XP_ORB_NORMAL_VALUE = 40;          // XP from normal orb
+export const XP_ORB_SUPER_VALUE = 400;          // XP from super orb (large asteroids)
+export const XP_ORB_RADIUS = { NORMAL: 4, SUPER: 8 };
+
+// Hull Orbs
+export const HULL_ORB_VALUE = 25;               // HP restored
+export const HULL_ORB_RADIUS = 8;
+export const HULL_DROP_CHANCE = 0.02;           // 2% chance from any asteroid
+
+// Collection
+export const ORB_MAGNET_RANGE_BASE = 60;        // Base pickup range
+export const ORB_DRIFT_SPEED = 0.5;             // Random drift velocity
+
+// Leveling
+export const XP_BASE_REQ = 200;                 // XP needed for level 2
+export const XP_SCALING_FACTOR = 1.20;          // XP requirement multiplier per level
+
+// ============================================================================
+// UPGRADES - Stat scaling per tier
+// ============================================================================
+
+// Per-tier multipliers (these define how powerful each upgrade level is)
+export const UPGRADE_ENGINE_MULT = 0.25;        // +25% speed per tier
+export const UPGRADE_REGEN_PER_TIER = 3;        // +3 HP/sec per tier
+export const UPGRADE_HULL_MULT = 0.30;          // +30% max hull per tier
+export const UPGRADE_FIRE_RATE_REDUCTION = 0.20;// -20% fire delay per tier (min 10%)
+export const UPGRADE_VELOCITY_MULT = 0.25;      // +25% bullet speed per tier
+export const UPGRADE_MAGNET_RANGE = 60;         // +60px pickup range per tier
+export const UPGRADE_XP_MULT = 0.25;            // +25% XP value per tier
+
+// Multishot spread angles
+export const MULTISHOT_SPREAD = {
+    DOUBLE: 0.1,                                // Angle offset for 2 barrels
+    TRIPLE: 0.2,                                // Angle offset for 3 barrels
+    DYNAMIC_TOTAL: 0.6                          // Total spread arc for 4+ barrels
 };
 
-// --- ECONOMY / LOOT ---
-export const ORB_MAGNET_RANGE_BASE = 60;
+// ============================================================================
+// VISUALS - Particles, effects, and juice
+// ============================================================================
 
-export const XP_ORB_NORMAL_VALUE = 40;
-export const XP_ORB_SUPER_VALUE = 400;
+// Particles
+export const PARTICLE_COUNT_EXPLOSION = 25;     // Particles on asteroid death
+export const PARTICLE_LIFE = 1.0;               // Starting life value
+export const PARTICLE_DECAY_THRUST = { MIN: 0.1, MAX: 0.2 };
+export const PARTICLE_DECAY_DEBRIS = { MIN: 0.02, MAX: 0.05 };
+export const SHOCKWAVE_DECAY = 0.04;            // Shockwave ring fade rate
 
-export const HULL_ORB_VALUE = 25;
-export const HULL_DROP_CHANCE = 0.02;
+// Floating Text
+export const FLOATING_TEXT_LIFE = 40;           // Frames before fade
+export const FLOATING_TEXT_SPEED = 1;           // Upward velocity
+export const FLOATING_TEXT_SIZE = 14;           // Default font size
 
-// --- LEVELING ---
-export const XP_BASE_REQ = 200;
-export const XP_SCALING_FACTOR = 1.20; // Reduced from 1.35 to make late game viable
+// Screen Effects
+export const SCREEN_SHAKE_DECAY = 0.9;          // Shake intensity decay per frame
+export const HIT_FLASH_FRAMES = 4;              // White flash duration on hit
 
-// --- UPGRADES ---
+// Menu
+export const MENU_ASTEROID_COUNT = 5;           // Background asteroids on menu
+
+// ============================================================================
+// PERFORMANCE - Entity limits to prevent slowdown
+// ============================================================================
+
+export const MAX_PARTICLES = 150;               // Max debris/thrust particles
+export const MAX_XP_ORBS = 100;                 // Max XP orbs on screen
+export const MAX_HULL_ORBS = 20;                // Max hull orbs on screen
+export const MAX_FLOATING_TEXT = 15;            // Max damage/XP numbers
+export const MAX_BULLETS = 100;                 // Max bullets on screen
+
+// Colors
+export const COLORS = {
+    SHIP: '#00ffff',           // Cyan
+    SHIP_THRUST: '#3b82f6',    // Base Blue
+    SHIP_THRUST_T2: '#8b5cf6', // Violet (tier 2 engine)
+    SHIP_THRUST_T3: '#d946ef', // Magenta Plasma (tier 3+)
+    BULLET: '#ffffff',
+    ASTEROID: '#9ca3af',       // Cool Grey
+    MOLTEN: '#ef4444',         // Red
+    XP_NORMAL: '#ca8a04',      // Dark Gold
+    XP_SUPER: '#facc15',       // Bright Gold
+    HULL: '#3b82f6',           // Blue
+    TEXT: '#ffffff',
+    FLASH: '#ffffff',
+    DRONE: '#a855f7',          // Purple
+    SHIELD: '#d8b4fe',         // Light Purple
+    IRON: '#7c2d12',           // Rusty
+    SHOCKWAVE: '#67e8f9',      // Cyan
+};
+
+// ============================================================================
+// UPGRADES DEFINITIONS
+// ============================================================================
+
 export const UPGRADES: UpgradeDef[] = [
-    // TECH (Green)
+    // TECH (Green) - Survival & Mobility
     {
         id: 'engine',
         name: 'Plasmatron Thrusters',
@@ -96,7 +262,7 @@ export const UPGRADES: UpgradeDef[] = [
         color: 'text-green-400 border-green-500 shadow-green-500/50'
     },
 
-    // COMBAT (Red)
+    // COMBAT (Red) - Damage & Fire Rate
     {
         id: 'rapidfire',
         name: 'Hyper-Cooling',
@@ -106,20 +272,27 @@ export const UPGRADES: UpgradeDef[] = [
     },
     {
         id: 'multishot',
-        name: '+1 Main Gun',
-        description: (t) => t === 1 ? 'Double Barrel Cannon' : t === 2 ? 'Triple Spread Shot' : `Add Gun Barrel (Total: ${1 + t})`,
+        name: 'Split Shot',
+        description: (t) => `+1 Barrel, DMG Split (${Math.floor((1 + t * 0.3) / (t + 1) * 100)}% each, ${Math.floor((1 + t * 0.3) * 100)}% total)`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
     {
-        id: 'velocity',
+        id: 'range',
         name: 'Magnetic Rails',
-        description: (t) => `Bullet Speed & Range +25% (Tier ${t})`,
+        description: (t) => `Range +25%, Damage +15% (Tier ${t})`,
+        category: UpgradeCategory.COMBAT,
+        color: 'text-red-400 border-red-500 shadow-red-500/50'
+    },
+    {
+        id: 'ricochet',
+        name: 'Ricochet Rounds',
+        description: (t) => `Bullets bounce ${t}x to nearby enemies (60% dmg per bounce)`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
 
-    // ADD-ONS (Purple)
+    // ADD-ONS (Purple) - Companions & Utility
     {
         id: 'drone',
         name: 'A.R.C. Swarm',
@@ -127,7 +300,6 @@ export const UPGRADES: UpgradeDef[] = [
         category: UpgradeCategory.ADDONS,
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     },
-    // SUB-UPGRADE: Drone Fire Rate
     {
         id: 'drone_rofl',
         parentId: 'drone',
@@ -136,16 +308,6 @@ export const UPGRADES: UpgradeDef[] = [
         category: UpgradeCategory.ADDONS,
         color: 'text-purple-200 border-purple-300 shadow-purple-300/30'
     },
-    // SUB-UPGRADE: Drone Gun Count
-    {
-        id: 'drone_gun',
-        parentId: 'drone',
-        name: 'Drone: Aux Battery',
-        description: (t) => `Drone +1 Gun Barrel (Total: ${1 + t})`,
-        category: UpgradeCategory.ADDONS,
-        color: 'text-purple-200 border-purple-300 shadow-purple-300/30'
-    },
-
     {
         id: 'magnet',
         name: 'Tractor Beam',
@@ -168,27 +330,3 @@ export const UPGRADES: UpgradeDef[] = [
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     }
 ];
-
-
-// --- JUICE ---
-export const PARTICLE_COUNT_EXPLOSION = 25;
-export const SCREEN_SHAKE_DECAY = 0.9;
-
-export const COLORS = {
-    SHIP: '#00ffff', // Cyan
-    SHIP_THRUST: '#3b82f6', // Base Blue
-    SHIP_THRUST_T2: '#8b5cf6', // Violet
-    SHIP_THRUST_T3: '#d946ef', // Magenta Plasma
-    BULLET: '#ffffff', // White
-    ASTEROID: '#9ca3af', // Cool Grey
-    MOLTEN: '#ef4444', // Red 500
-    XP_NORMAL: '#ca8a04', // Dark Gold (Yellow 600)
-    XP_SUPER: '#facc15', // Bright Gold (Yellow 400)
-    HULL: '#3b82f6', // Blue 500
-    TEXT: '#ffffff',
-    FLASH: '#ffffff',
-    DRONE: '#a855f7', // Purple 500
-    SHIELD: '#d8b4fe', // Purple 300
-    IRON: '#7c2d12', // Rusty Iron
-    SHOCKWAVE: '#67e8f9', // Cyan 300
-};
