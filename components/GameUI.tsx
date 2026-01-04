@@ -15,6 +15,7 @@ interface GameUIProps {
     startLevel: number;
     deathReason: string;
     xpBarRef: React.RefObject<HTMLDivElement | null>;
+    hullBarRef: React.RefObject<HTMLDivElement | null>;
     onStartGame: () => void;
     onToggleDevMode: () => void;
     onSetStartLevel: (lvl: number) => void;
@@ -42,7 +43,7 @@ const AddonIcon = () => (
 
 const GameUI: React.FC<GameUIProps> = ({
     gameState, score, level, ship, pendingUpgrades, offeredUpgrades, activeUpgrades,
-    isDevMode, startLevel, deathReason, xpBarRef,
+    isDevMode, startLevel, deathReason, xpBarRef, hullBarRef,
     onStartGame, onToggleDevMode, onSetStartLevel, onSelectUpgrade
 }) => {
 
@@ -55,8 +56,9 @@ const GameUI: React.FC<GameUIProps> = ({
                 {/* Hull Bar */}
                 <div className="w-48 h-4 bg-gray-900 border border-gray-700 relative overflow-hidden rounded shadow-lg">
                     <div 
+                        ref={hullBarRef}
                         className="h-full bg-blue-500 transition-all duration-200 ease-out" 
-                        style={{width: ship ? `${Math.max(0, Math.min(100, (ship.hull / ship.maxHull) * 100))}%` : '0%'}}
+                        style={{width: '100%'}}
                     ></div>
                 </div>
                 
