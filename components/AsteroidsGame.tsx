@@ -1271,7 +1271,12 @@ const AsteroidsGame: React.FC = () => {
 
                             // Ricochet: spawn new bullet if bounces remaining
                             if (b.bouncesRemaining > 0) {
-                                const bulletRange = BULLET_LIFE * 0.7 * BULLET_SPEED; // How far ricochet can travel
+                                // Calculate current max range based on ship stats
+                                const stats = ship.stats;
+                                const currentMaxLife = BULLET_LIFE * (1.0 + stats.rangeTier * 0.25);
+                                const ricochetLife = currentMaxLife * 0.7;
+                                const bulletRange = ricochetLife * BULLET_SPEED;
+
                                 const currentChain = b.hitChainIds || [];
                                 const newChain = [...currentChain, a.id]; // Add current target to chain
 
@@ -1312,7 +1317,7 @@ const AsteroidsGame: React.FC = () => {
                                         angle: angle,
                                         color: bulletColor,
                                         toBeRemoved: false,
-                                        life: BULLET_LIFE * 0.7,
+                                        life: ricochetLife,
                                         damage: b.damage * 0.6,
                                         bouncesRemaining: b.bouncesRemaining - 1,
                                         hitChainIds: newChain,
