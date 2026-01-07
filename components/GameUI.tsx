@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState, Ship, UpgradeCategory, UpgradeDef } from '../types';
-import { UPGRADES, SHIELD_RECHARGE_TIME } from '../constants';
+import { UPGRADES, SHIELD_RECHARGE_TIME, ORB_MAGNET_RANGE_BASE, SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER, BULLET_DAMAGE, BULLET_LIFE, BULLET_RATE } from '../constants';
 
 interface GameUIProps {
     gameState: GameState;
@@ -20,6 +20,9 @@ interface GameUIProps {
     hullBarRef: React.RefObject<HTMLDivElement | null>;
     shieldBarRef: React.RefObject<HTMLDivElement | null>;
     shieldTextRef: React.RefObject<HTMLDivElement | null>;
+    hullTextRef: React.RefObject<HTMLDivElement | null>;
+    xpTextRef: React.RefObject<HTMLDivElement | null>;
+    regenTextRef: React.RefObject<HTMLDivElement | null>;
     onStartGame: () => void;
     onToggleDevMode: () => void;
     onToggleSandbox: () => void;
@@ -49,7 +52,7 @@ const AddonIcon = () => (
 
 const GameUI: React.FC<GameUIProps> = ({
     gameState, score, level, ship, pendingUpgrades, offeredUpgrades, activeUpgrades,
-    isDevMode, isSandbox, showDamageNumbers, startLevel, deathReason, xpBarRef, hullBarRef, shieldBarRef, shieldTextRef,
+    isDevMode, isSandbox, showDamageNumbers, startLevel, deathReason, xpBarRef, hullBarRef, shieldBarRef, shieldTextRef, hullTextRef, xpTextRef, regenTextRef,
     onStartGame, onToggleDevMode, onToggleSandbox, onToggleDamageNumbers, onSetStartLevel, onSelectUpgrade
 }) => {
 
@@ -59,22 +62,34 @@ const GameUI: React.FC<GameUIProps> = ({
             <div className="text-sm text-gray-400 drop-shadow-md">LVL {level}</div>
 
             <div className="flex flex-col gap-1 mt-2">
-                {/* Hull Bar */}
-                <div className="w-48 h-4 bg-gray-900 border border-gray-700 relative overflow-hidden rounded shadow-lg">
-                    <div
-                        ref={hullBarRef}
-                        className="h-full bg-blue-500 transition-all duration-200 ease-out"
-                        style={{ width: '100%' }}
-                    ></div>
+                {/* Hull Bar Row */}
+                <div className="flex items-center gap-2">
+                    <div className="w-48 h-4 bg-gray-900 border border-gray-700 relative overflow-hidden rounded shadow-lg">
+                        <div
+                            ref={hullBarRef}
+                            className="h-full bg-blue-500 transition-all duration-200 ease-out"
+                            style={{ width: '100%' }}
+                        ></div>
+                        <div ref={hullTextRef} className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-bold drop-shadow-md">
+                            100 / 100
+                        </div>
+                    </div>
+                    {/* Regen Indicator (controlled by ref) */}
+                    <div ref={regenTextRef} className="text-[10px] text-green-400 font-mono font-bold drop-shadow-md opacity-0 transition-opacity duration-300">
+                        +0.0/s
+                    </div>
                 </div>
 
-                {/* XP Bar (Moved Here) */}
-                <div className="w-48 h-1.5 bg-gray-900 border border-gray-800 relative overflow-hidden rounded">
+                {/* XP Bar with numeric overlay */}
+                <div className="w-48 h-3 bg-gray-900 border border-gray-800 relative overflow-hidden rounded">
                     <div
                         ref={xpBarRef}
                         className="h-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.6)] transition-all duration-100 ease-linear"
                         style={{ width: '0%' }}
                     ></div>
+                    <div ref={xpTextRef} className="absolute inset-0 flex items-center justify-center text-[9px] text-white font-bold drop-shadow-md">
+                        0 / 200
+                    </div>
                 </div>
             </div>
 
@@ -303,31 +318,99 @@ const GameUI: React.FC<GameUIProps> = ({
                                                 style={{ width: `${(ship.hull / ship.maxHull) * 100}%` }}
                                             ></div>
                                         </div>
+                                        {/* Regen indicator */}
+                                        {ship.stats.regenRate > 0 && (
+                                            <div className="text-green-400 text-[10px] font-mono mt-1">+{ship.stats.regenRate.toFixed(1)} reg/s</div>
+                                        )}
                                     </div>
 
-                                    {/* Stats List */}
-                                    <div className="space-y-3 text-xs font-mono text-gray-300 flex-1">
-                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                                            <span className="text-gray-500">THRUST OUTPUT</span>
-                                            <span className="text-green-400 font-bold">{Math.round(ship.stats.thrustMult * 100)}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                                            <span className="text-gray-500">WEAPON RATE</span>
-                                            <span className="text-red-400 font-bold">{Math.round((1 / ship.stats.fireRateMult) * 100)}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                                            <span className="text-gray-500">RANGE</span>
-                                            <span className="text-red-400 font-bold">{Math.round((1 + ship.stats.rangeTier * 0.25) * 100)}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                                            <span className="text-gray-500">DAMAGE</span>
-                                            <span className="text-red-400 font-bold">{Math.round(ship.stats.damageMult * 100)}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                                            <span className="text-gray-500">DRONE COUNT</span>
-                                            <span className="text-purple-400 font-bold">{ship.stats.droneCount}</span>
-                                        </div>
+                                    {/* Thrust - at top */}
+                                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 text-xs font-mono">
+                                        <span className="text-gray-500">THRUST OUTPUT</span>
+                                        <span className="text-green-400 font-bold">{Math.round(ship.stats.thrustMult * 100)}%</span>
                                     </div>
+
+                                    {/* Main Weapon Stats */}
+                                    <div className="space-y-1 text-xs font-mono">
+                                        <div className="text-gray-500 uppercase tracking-widest text-[10px] mb-2">Main Weapon</div>
+                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                            <span className="text-gray-500">DAMAGE</span>
+                                            <span className="text-red-400 font-bold">{Math.round(BULLET_DAMAGE * ship.stats.damageMult)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                            <span className="text-gray-500">FIRE RATE</span>
+                                            <span className="text-red-400 font-bold">{(60 / (BULLET_RATE * ship.stats.fireRateMult)).toFixed(1)}/s</span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                            <span className="text-gray-500">RANGE</span>
+                                            <span className="text-red-400 font-bold">{Math.round(BULLET_LIFE * (1 + ship.stats.rangeTier * 0.25))} frames</span>
+                                        </div>
+                                        {ship.stats.multishotTier > 0 && (
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">BARRELS</span>
+                                                <span className="text-red-400 font-bold">{ship.stats.multishotTier + 1}</span>
+                                            </div>
+                                        )}
+                                        {ship.stats.ricochetTier > 0 && (
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">RICOCHET</span>
+                                                <span className="text-cyan-400 font-bold">×{ship.stats.ricochetTier}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Drone Stats - only if has drones */}
+                                    {ship.stats.droneCount > 0 && (
+                                        <div className="space-y-1 text-xs font-mono">
+                                            <div className="text-gray-500 uppercase tracking-widest text-[10px] mb-2">Drone Swarm</div>
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">COUNT</span>
+                                                <span className="text-purple-400 font-bold">{ship.stats.droneCount}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">DAMAGE</span>
+                                                <span className="text-purple-400 font-bold">{Math.round(ship.stats.droneDamageMult * 100)}%</span>
+                                            </div>
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">FIRE RATE</span>
+                                                <span className="text-purple-400 font-bold">{Math.round((1 / ship.stats.droneFireRateMult) * 100)}%</span>
+                                            </div>
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">RANGE</span>
+                                                <span className="text-purple-400 font-bold">{Math.round(ship.stats.droneRangeMult * 100)}%</span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Shield Stats - only if has shields */}
+                                    {ship.stats.maxShieldCharges > 0 && (
+                                        <div className="space-y-1 text-xs font-mono">
+                                            <div className="text-gray-500 uppercase tracking-widest text-[10px] mb-2">Energy Shield</div>
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">CHARGES</span>
+                                                <span className="text-purple-400 font-bold">{ship.stats.shieldCharges}/{ship.stats.maxShieldCharges}</span>
+                                            </div>
+                                            {ship.stats.shieldRadiationTier > 0 && (
+                                                <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                    <span className="text-gray-500">RADIATION</span>
+                                                    <span className="text-purple-400 font-bold">{SHIELD_RADIATION_BASE_DPS + ship.stats.shieldRadiationTier * SHIELD_RADIATION_DPS_PER_TIER} DPS</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Tractor Beam - only if upgraded */}
+                                    {ship.stats.pickupRange > ORB_MAGNET_RANGE_BASE && (
+                                        <div className="space-y-1 text-xs font-mono">
+                                            <div className="text-gray-500 uppercase tracking-widest text-[10px] mb-2">Tractor Beam</div>
+                                            <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                <span className="text-gray-500">RANGE</span>
+                                                <span className="text-green-400 font-bold">+{ship.stats.pickupRange - ORB_MAGNET_RANGE_BASE}px</span>
+                                            </div>
+                                        </div>
+                                    )}
+
+
                                 </>
                             )}
 
@@ -396,8 +479,16 @@ const GameUI: React.FC<GameUIProps> = ({
                                                         <div className={`text-xl font-bold tracking-tight group-hover:text-white transition-colors duration-200 ${theme.titleColor}`}>
                                                             {u.name}
                                                         </div>
-                                                        <div className={`text-[10px] px-2 py-1 rounded border border-white/10 bg-black/20 uppercase tracking-widest ${theme.iconColor}`}>
-                                                            {u.category}
+                                                        <div className="flex gap-2">
+                                                            {/* Sub-upgrade indicator */}
+                                                            {UPGRADES.some(sub => sub.parentId === u.id) && (
+                                                                <div className="text-[10px] px-2 py-1 rounded border border-yellow-500/30 bg-yellow-500/10 text-yellow-400 uppercase tracking-widest">
+                                                                    +SUB
+                                                                </div>
+                                                            )}
+                                                            <div className={`text-[10px] px-2 py-1 rounded border border-white/10 bg-black/20 uppercase tracking-widest ${theme.iconColor}`}>
+                                                                {u.category}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div className="text-sm text-gray-400 font-mono leading-relaxed group-hover:text-gray-300 transition-colors">

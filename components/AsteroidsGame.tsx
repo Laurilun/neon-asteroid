@@ -153,6 +153,9 @@ const AsteroidsGame: React.FC = () => {
     const hullBarRef = useRef<HTMLDivElement>(null);
     const shieldBarRef = useRef<HTMLDivElement>(null);
     const shieldTextRef = useRef<HTMLDivElement>(null);
+    const hullTextRef = useRef<HTMLDivElement>(null);
+    const xpTextRef = useRef<HTMLDivElement>(null);
+    const regenTextRef = useRef<HTMLDivElement>(null);
 
     // --- Initialization ---
     const initGame = useCallback(() => {
@@ -780,7 +783,8 @@ const AsteroidsGame: React.FC = () => {
                     s.regenRate = currentTier * UPGRADE_REGEN_PER_TIER;
                     break;
                 case 'hull':
-                    s.maxHullMult = 1.0 + (currentTier * UPGRADE_HULL_MULT);
+                    // Compound scaling: 130%, 169%, 220%... (each tier multiplies by 1.30)
+                    s.maxHullMult = Math.pow(1.0 + UPGRADE_HULL_MULT, currentTier);
                     shipRef.current.maxHull = SHIP_BASE_HULL * s.maxHullMult;
                     shipRef.current.hull = shipRef.current.maxHull;
                     break;
@@ -897,11 +901,29 @@ const AsteroidsGame: React.FC = () => {
                 const pct = Math.min(100, (scoreRef.current / xpTargetRef.current) * 100);
                 levelBarRef.current.style.width = `${pct}%`;
             }
+            // Update XP Text overlay
+            if (xpTextRef.current) {
+                xpTextRef.current.textContent = `${Math.floor(scoreRef.current)} / ${xpTargetRef.current}`;
+            }
 
             // Update Hull Bar in HUD directly (same pattern as XP bar)
             if (hullBarRef.current && shipRef.current) {
                 const hullPct = Math.max(0, Math.min(100, (shipRef.current.hull / shipRef.current.maxHull) * 100));
                 hullBarRef.current.style.width = `${hullPct}%`;
+            }
+            // Update Hull Text overlay
+            if (hullTextRef.current && shipRef.current) {
+                hullTextRef.current.textContent = `${Math.round(shipRef.current.hull)} / ${Math.round(shipRef.current.maxHull)}`;
+            }
+            // Update Regen Text overlay
+            if (regenTextRef.current && shipRef.current) {
+                const reg = shipRef.current.stats.regenRate;
+                if (reg > 0) {
+                    regenTextRef.current.textContent = `+${reg.toFixed(1)}/s`;
+                    regenTextRef.current.style.opacity = '1';
+                } else {
+                    regenTextRef.current.style.opacity = '0';
+                }
             }
 
             // Update Shield Recharge Bar in HUD directly
@@ -1911,6 +1933,9 @@ const AsteroidsGame: React.FC = () => {
                 hullBarRef={hullBarRef}
                 shieldBarRef={shieldBarRef}
                 shieldTextRef={shieldTextRef}
+                hullTextRef={hullTextRef}
+                xpTextRef={xpTextRef}
+                regenTextRef={regenTextRef}
                 onStartGame={initGame}
                 onToggleDevMode={() => setIsDevMode(!isDevMode)}
                 onToggleSandbox={() => setIsSandbox(!isSandbox)}
