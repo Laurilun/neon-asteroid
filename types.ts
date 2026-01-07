@@ -37,14 +37,18 @@ export interface ShipStats {
   pickupRange: number;    // Pixels (default 50)
   shieldCharges: number;  // Current charges
   maxShieldCharges: number;
+  shieldRechargeTimer: number; // Time since last recharge (ms)
   droneCount: number;     // Number of active drones
   droneFireRateMult: number; // Drone specific fire rate
+  droneDamageMult: number;   // Drone damage multiplier (from Overclock)
+  droneRangeMult: number;    // Drone bullet range multiplier (from Overclock)
   multishotTier: number;  // 0 = single, 1 = double, 2 = triple, etc.
   xpMult: number;         // Multiplier for XP gain (default 1.0)
   // New stats for rebalance
   rangeTier: number;      // Range + damage upgrade tier
   ricochetTier: number;   // Ricochet upgrade tier (max bounces)
   damageMult: number;     // Base damage multiplier (from range upgrade)
+  shieldRadiationTier: number; // Shield radiation sub-upgrade tier
 }
 
 export interface Ship extends Entity {

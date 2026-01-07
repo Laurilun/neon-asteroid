@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState, Ship, UpgradeCategory, UpgradeDef } from '../types';
-import { UPGRADES } from '../constants';
+import { UPGRADES, SHIELD_RECHARGE_TIME } from '../constants';
 
 interface GameUIProps {
     gameState: GameState;
@@ -18,6 +18,8 @@ interface GameUIProps {
     deathReason: string;
     xpBarRef: React.RefObject<HTMLDivElement | null>;
     hullBarRef: React.RefObject<HTMLDivElement | null>;
+    shieldBarRef: React.RefObject<HTMLDivElement | null>;
+    shieldTextRef: React.RefObject<HTMLDivElement | null>;
     onStartGame: () => void;
     onToggleDevMode: () => void;
     onToggleSandbox: () => void;
@@ -47,7 +49,7 @@ const AddonIcon = () => (
 
 const GameUI: React.FC<GameUIProps> = ({
     gameState, score, level, ship, pendingUpgrades, offeredUpgrades, activeUpgrades,
-    isDevMode, isSandbox, showDamageNumbers, startLevel, deathReason, xpBarRef, hullBarRef,
+    isDevMode, isSandbox, showDamageNumbers, startLevel, deathReason, xpBarRef, hullBarRef, shieldBarRef, shieldTextRef,
     onStartGame, onToggleDevMode, onToggleSandbox, onToggleDamageNumbers, onSetStartLevel, onSelectUpgrade
 }) => {
 
@@ -76,10 +78,23 @@ const GameUI: React.FC<GameUIProps> = ({
                 </div>
             </div>
 
-            {/* Shield Indicator */}
-            {ship && ship.stats.shieldCharges > 0 && (
-                <div className="mt-1 text-purple-400 text-xs font-bold drop-shadow-sm animate-pulse">
-                    SHIELD ACTIVE x{ship.stats.shieldCharges}
+            {/* Shield Indicator - text controlled by game loop via ref */}
+            {ship && ship.stats.maxShieldCharges > 0 && (
+                <div className="mt-2">
+                    <div
+                        ref={shieldTextRef}
+                        className="text-purple-400 text-[10px] font-bold drop-shadow-sm"
+                    >
+                        SHIELD x{ship.stats.shieldCharges}/{ship.stats.maxShieldCharges}
+                    </div>
+                    {/* Recharge Bar - always render, visibility controlled by game loop */}
+                    <div className="w-32 h-1.5 bg-gray-800 border border-purple-900/50 rounded-full mt-1 overflow-hidden" style={{ display: 'none' }}>
+                        <div
+                            ref={shieldBarRef}
+                            className="h-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all duration-100"
+                            style={{ width: '0%' }}
+                        ></div>
+                    </div>
                 </div>
             )}
         </div>

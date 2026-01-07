@@ -32,6 +32,9 @@ import {
     // Upgrades
     UPGRADE_ENGINE_MULT, UPGRADE_REGEN_PER_TIER, UPGRADE_HULL_MULT,
     UPGRADE_FIRE_RATE_REDUCTION, UPGRADE_VELOCITY_MULT, UPGRADE_MAGNET_RANGE, UPGRADE_XP_MULT,
+    UPGRADE_DRONE_FIRE_RATE_REDUCTION, UPGRADE_DRONE_DAMAGE_MULT, UPGRADE_DRONE_RANGE_MULT,
+    SHIELD_RECHARGE_TIME, SHIELD_RADIATION_BASE_RADIUS, SHIELD_RADIATION_RADIUS_PER_TIER,
+    SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER,
     MULTISHOT_SPREAD,
     // Visuals
     PARTICLE_COUNT_EXPLOSION, PARTICLE_LIFE, PARTICLE_DECAY_THRUST, PARTICLE_DECAY_DEBRIS, SHOCKWAVE_DECAY,
@@ -148,6 +151,8 @@ const AsteroidsGame: React.FC = () => {
     // HUD Refs (For XP Bar, we can pass a ref to GameUI if we wanted direct DOM manip, but state is fine for low freq updates)
     const levelBarRef = useRef<HTMLDivElement>(null);
     const hullBarRef = useRef<HTMLDivElement>(null);
+    const shieldBarRef = useRef<HTMLDivElement>(null);
+    const shieldTextRef = useRef<HTMLDivElement>(null);
 
     // --- Initialization ---
     const initGame = useCallback(() => {
@@ -178,14 +183,18 @@ const AsteroidsGame: React.FC = () => {
                 pickupRange: ORB_MAGNET_RANGE_BASE,
                 shieldCharges: 0,
                 maxShieldCharges: 0,
+                shieldRechargeTimer: 0,
                 droneCount: 0,
                 droneFireRateMult: 1.0,
+                droneDamageMult: 1.0,
+                droneRangeMult: 1.0,
                 multishotTier: 0,
                 xpMult: 1.0,
                 // New stats
                 rangeTier: 0,
                 ricochetTier: 0,
-                damageMult: 1.0
+                damageMult: 1.0,
+                shieldRadiationTier: 0
             }
         };
 
@@ -642,6 +651,68 @@ const AsteroidsGame: React.FC = () => {
         });
     };
 
+    // Centralized Asteroid Death Logic
+    const destroyAsteroid = (a: Asteroid) => {
+        if (a.toBeRemoved) return;
+        a.toBeRemoved = true;
+
+        // Score calculation based on size and type
+        const isSpecial = a.type !== EntityType.Asteroid;
+        let scoreValue = 0;
+        if (isSpecial) {
+            // Special asteroids (Molten, Iron, Frozen): 100 base
+            scoreValue = 100;
+        } else {
+            // Normal asteroids: 10/25/50 for small/medium/large
+            scoreValue = a.sizeCategory === 3 ? 50 : a.sizeCategory === 2 ? 25 : 10;
+        }
+        scoreRef.current += scoreValue;
+        setUiScore(scoreRef.current);
+
+        // Shake
+        screenShakeRef.current = a.sizeCategory * 2;
+
+        // Visuals
+        spawnParticles(a.pos, a.color, 1, 0, 'SHOCKWAVE');
+        spawnParticles(a.pos, a.color, 8, 4, 'DEBRIS');
+
+        // Splitting
+        if (a.type === EntityType.Asteroid && a.sizeCategory > 1) {
+            const newSize = (a.sizeCategory - 1) as 1 | 2;
+            createAsteroid({ ...a.pos }, { x: a.vel.x + randomRange(-0.5, 0.5), y: a.vel.y + randomRange(-0.5, 0.5) }, newSize);
+            createAsteroid({ ...a.pos }, { x: a.vel.x + randomRange(-0.5, 0.5), y: a.vel.y + randomRange(-0.5, 0.5) }, newSize);
+        }
+
+        // Loot
+        if (Math.random() < HULL_DROP_CHANCE) spawnHullOrb(a.pos);
+
+        // Loot (reusing isSpecial from score calculation)
+        if (isSpecial) {
+            const dropCount = Math.random() < 0.2 ? 3 : Math.random() < 0.5 ? 2 : 1;
+            for (let i = 0; i < dropCount; i++) {
+                spawnExpOrb({ x: a.pos.x + randomRange(-10, 10), y: a.pos.y + randomRange(-10, 10) }, 'SUPER');
+            }
+        } else {
+            spawnExpOrb(a.pos, 'NORMAL');
+        }
+    };
+
+    // Centralized Shield Save Logic - use this whenever a shield save triggers
+    const triggerShieldSave = () => {
+        const ship = shipRef.current;
+        if (!ship || ship.stats.shieldCharges <= 0) return false;
+
+        ship.stats.shieldCharges--;
+        ship.hull = ship.maxHull * 0.25; // Heal to 25% HP
+        ship.invulnerableUntil = Date.now() + INVULN_DURATION_SHIELD;
+
+        spawnFloatingText(ship.pos, "SHIELD SAVED!", COLORS.SHIELD, 20);
+        spawnParticles(ship.pos, COLORS.SHIELD, 30, 5);
+        screenShakeRef.current = 15;
+
+        return true; // Shield was used
+    };
+
     const prepareLevelUp = (isDevSequence = false) => {
         // Increment level and update XP target IMMEDIATELY when level-up triggers
         // This prevents multiple level-ups from accumulated XP
@@ -739,14 +810,25 @@ const AsteroidsGame: React.FC = () => {
                     });
                     break;
                 case 'drone_rofl':
-                    s.droneFireRateMult = Math.max(0.1, 1.0 - (currentTier * UPGRADE_FIRE_RATE_REDUCTION));
+                    // Formula: New Delay = Base Delay / (1 + (Modifier * Tier))
+                    // This means Tier 1 = 120% speed, Tier 5 = 200% speed, etc.
+                    // Allows infinite scaling without ever reaching 0 delay.
+                    s.droneFireRateMult = 1.0 / (1.0 + (currentTier * UPGRADE_DRONE_FIRE_RATE_REDUCTION));
+                    s.droneDamageMult = 1.0 + (currentTier * UPGRADE_DRONE_DAMAGE_MULT);
+                    s.droneRangeMult = 1.0 + (currentTier * UPGRADE_DRONE_RANGE_MULT);
                     break;
-                case 'magnet': s.pickupRange = ORB_MAGNET_RANGE_BASE + (currentTier * UPGRADE_MAGNET_RANGE); break;
+                case 'magnet':
+                    s.pickupRange = ORB_MAGNET_RANGE_BASE + (currentTier * UPGRADE_MAGNET_RANGE);
+                    s.xpMult = 1.0 + (currentTier * UPGRADE_XP_MULT); // Now also gives orb value bonus
+                    break;
                 case 'shield':
                     s.maxShieldCharges = currentTier;
                     s.shieldCharges = currentTier;
+                    s.shieldRechargeTimer = 0; // Reset timer on upgrade
                     break;
-                case 'scavenger': s.xpMult = 1.0 + (currentTier * UPGRADE_XP_MULT); break;
+                case 'shield_radiation':
+                    s.shieldRadiationTier = currentTier;
+                    break;
             }
 
             if (s.maxShieldCharges > 0 && upgrade.id === 'shield') {
@@ -820,6 +902,30 @@ const AsteroidsGame: React.FC = () => {
             if (hullBarRef.current && shipRef.current) {
                 const hullPct = Math.max(0, Math.min(100, (shipRef.current.hull / shipRef.current.maxHull) * 100));
                 hullBarRef.current.style.width = `${hullPct}%`;
+            }
+
+            // Update Shield Recharge Bar in HUD directly
+            if (shieldBarRef.current && shipRef.current) {
+                const stats = shipRef.current.stats;
+                if (stats.shieldCharges < stats.maxShieldCharges) {
+                    const shieldPct = Math.min(100, (stats.shieldRechargeTimer / SHIELD_RECHARGE_TIME) * 100);
+                    shieldBarRef.current.style.width = `${shieldPct}%`;
+                    shieldBarRef.current.parentElement!.style.display = 'block';
+                } else {
+                    shieldBarRef.current.parentElement!.style.display = 'none';
+                }
+            }
+
+            // Update Shield Text in HUD directly for instant feedback
+            if (shieldTextRef.current && shipRef.current) {
+                const stats = shipRef.current.stats;
+                if (stats.shieldCharges > 0) {
+                    shieldTextRef.current.textContent = `SHIELD x${stats.shieldCharges}/${stats.maxShieldCharges}`;
+                    shieldTextRef.current.className = 'text-purple-400 text-[10px] font-bold drop-shadow-sm';
+                } else {
+                    shieldTextRef.current.textContent = 'CHARGING...';
+                    shieldTextRef.current.className = 'text-purple-600 text-[10px] font-medium drop-shadow-sm';
+                }
             }
 
             ctx.save();
@@ -905,6 +1011,48 @@ const AsteroidsGame: React.FC = () => {
                     ship.hull = Math.min(ship.maxHull, ship.hull + stats.regenRate / 60);
                 }
 
+                // Shield Recharge Logic (30s per charge)
+                if (stats.shieldCharges < stats.maxShieldCharges) {
+                    stats.shieldRechargeTimer += 1000 / 60; // Add ~16.67ms per frame
+                    if (stats.shieldRechargeTimer >= SHIELD_RECHARGE_TIME) {
+                        stats.shieldCharges++;
+                        stats.shieldRechargeTimer = 0;
+                        spawnFloatingText(ship.pos, "SHIELD RECHARGED!", COLORS.SHIELD, 16);
+                        spawnParticles(ship.pos, COLORS.SHIELD, 15, 3);
+                    }
+                }
+
+                // Shield Radiation Aura (DoT to nearby enemies) - only works with active shields
+                if (stats.shieldRadiationTier > 0 && stats.shieldCharges > 0) {
+                    const radiationRadius = SHIELD_RADIATION_BASE_RADIUS + (stats.shieldRadiationTier * SHIELD_RADIATION_RADIUS_PER_TIER);
+                    const radiationDPS = SHIELD_RADIATION_BASE_DPS + (stats.shieldRadiationTier * SHIELD_RADIATION_DPS_PER_TIER);
+                    const damagePerFrame = radiationDPS / 60;
+
+                    for (const a of asteroidsRef.current) {
+                        if (!a.toBeRemoved && dist(ship.pos, a.pos) < radiationRadius + a.radius) {
+                            a.hp -= damagePerFrame;
+                            a.hitFlash = Math.max(a.hitFlash, 1); // Subtle flash
+
+                            // Show damage numbers every 30 frames (0.5s) to avoid spam
+                            if (frameCountRef.current % 30 === 0) {
+                                const dmg = Math.round(radiationDPS / 2); // Half-second damage
+                                spawnFloatingText(
+                                    { x: a.pos.x + randomRange(-10, 10), y: a.pos.y + randomRange(-10, 10) },
+                                    `-${dmg}`,
+                                    '#a855f7', // Purple for radiation
+                                    10
+                                );
+                            }
+
+                            // Handle Death from Radiation
+                            // Handle Death from Radiation
+                            if (a.hp <= 0) {
+                                destroyAsteroid(a);
+                            }
+                        }
+                    }
+                }
+
                 // Check for Frozen Status Logic
                 for (const a of asteroidsRef.current) {
                     if (a.type === EntityType.FrozenAsteroid && !a.toBeRemoved) {
@@ -912,14 +1060,7 @@ const AsteroidsGame: React.FC = () => {
                             ship.isFrozen = true;
                             ship.hull -= FROZEN_AURA_DAMAGE;
                             if (ship.hull <= 0) {
-                                if (ship.stats.shieldCharges > 0) {
-                                    ship.stats.shieldCharges--;
-                                    ship.hull = 1;
-                                    ship.invulnerableUntil = Date.now() + 2000;
-                                    spawnFloatingText(ship.pos, "SHIELD SAVED!", COLORS.SHIELD, 20);
-                                    screenShakeRef.current = 15;
-                                    spawnParticles(ship.pos, COLORS.SHIELD, 30, 5);
-                                } else {
+                                if (!triggerShieldSave()) {
                                     handleGameOver("Hypothermia");
                                 }
                             }
@@ -1105,7 +1246,7 @@ const AsteroidsGame: React.FC = () => {
                             drone.vel = { x: 0, y: 0 };
                         }
 
-                        // Shooting Logic
+                        // Shooting Logic - Fire at target, bullet travels straight (no homing)
                         const droneFireRate = Math.floor(DRONE_BASE_FIRE_RATE * stats.droneFireRateMult);
                         if (t - drone.lastShot > droneFireRate) {
                             let nearest = null;
@@ -1118,12 +1259,18 @@ const AsteroidsGame: React.FC = () => {
                                 }
                             }
                             if (nearest) {
-                                const angle = Math.atan2(nearest.pos.y - drone.pos.y, nearest.pos.x - drone.pos.x);
+                                const targetAngle = Math.atan2(nearest.pos.y - drone.pos.y, nearest.pos.x - drone.pos.x);
+                                // Add aim spread for natural feel (±8.5 degrees)
+                                const aimSpread = (Math.random() - 0.5) * 0.3;
+                                const angle = targetAngle + aimSpread;
+
                                 // recoil
                                 drone.vel.x -= Math.cos(angle) * DRONE_RECOIL;
                                 drone.vel.y -= Math.sin(angle) * DRONE_RECOIL;
 
-                                // Drones always have 1 gun now
+                                // Drones have base 1.5x range, scaled by Overclock
+                                const droneBulletLife = BULLET_LIFE * 1.5 * stats.droneRangeMult;
+
                                 bulletsRef.current.push({
                                     id: Math.random().toString(),
                                     type: EntityType.Bullet,
@@ -1136,8 +1283,8 @@ const AsteroidsGame: React.FC = () => {
                                     angle: angle,
                                     color: COLORS.DRONE,
                                     toBeRemoved: false,
-                                    life: BULLET_LIFE * 1.5,
-                                    damage: BULLET_DAMAGE * stats.damageMult,
+                                    life: droneBulletLife,
+                                    damage: BULLET_DAMAGE * stats.droneDamageMult,
                                     bouncesRemaining: stats.ricochetTier
                                 });
                                 drone.lastShot = t;
@@ -1298,10 +1445,9 @@ const AsteroidsGame: React.FC = () => {
                                 // Spawn ricochet if we have a target
                                 if (target) {
                                     const angle = Math.atan2(target.pos.y - b.pos.y, target.pos.x - b.pos.x);
+                                    const bounceDepth = (b.bounceDepth ?? 0) + 1;
 
-                                    // Bounce depth for color gradient (0 = first bounce)
-                                    const bounceDepth = (b.bounceDepth ?? -1) + 1;
-                                    // White → Cyan gradient (matches original bullet style)
+                                    // White → Cyan gradient based on bounce depth
                                     const ricochetColors = ['#ffffff', '#e0ffff', '#b0ffff', '#80ffff', '#00ffff'];
                                     const bulletColor = ricochetColors[Math.min(bounceDepth, ricochetColors.length - 1)];
 
@@ -1318,7 +1464,7 @@ const AsteroidsGame: React.FC = () => {
                                         color: bulletColor,
                                         toBeRemoved: false,
                                         life: ricochetLife,
-                                        damage: b.damage * 0.6,
+                                        damage: b.damage * 0.5, // 50% damage per bounce (nerfed from 60%)
                                         bouncesRemaining: b.bouncesRemaining - 1,
                                         hitChainIds: newChain,
                                         isRicochet: true,
@@ -1331,29 +1477,7 @@ const AsteroidsGame: React.FC = () => {
                             b.toBeRemoved = true;
 
                             if (a.hp <= 0) {
-                                a.toBeRemoved = true;
-                                screenShakeRef.current = a.sizeCategory * 2;
-
-                                spawnParticles(a.pos, a.color, 1, 0, 'SHOCKWAVE');
-                                spawnParticles(a.pos, a.color, 8, 4, 'DEBRIS');
-
-                                if (a.type === EntityType.Asteroid && a.sizeCategory > 1) {
-                                    const newSize = (a.sizeCategory - 1) as 1 | 2;
-                                    createAsteroid({ ...a.pos }, { x: a.vel.x + randomRange(-0.5, 0.5), y: a.vel.y + randomRange(-0.5, 0.5) }, newSize);
-                                    createAsteroid({ ...a.pos }, { x: a.vel.x + randomRange(-0.5, 0.5), y: a.vel.y + randomRange(-0.5, 0.5) }, newSize);
-                                }
-
-                                if (Math.random() < HULL_DROP_CHANCE) spawnHullOrb(a.pos);
-
-                                const isSpecial = a.type !== EntityType.Asteroid;
-                                if (isSpecial) {
-                                    const dropCount = Math.random() < 0.2 ? 3 : Math.random() < 0.5 ? 2 : 1;
-                                    for (let i = 0; i < dropCount; i++) {
-                                        spawnExpOrb({ x: a.pos.x + randomRange(-10, 10), y: a.pos.y + randomRange(-10, 10) }, 'SUPER');
-                                    }
-                                } else {
-                                    spawnExpOrb(a.pos, 'NORMAL');
-                                }
+                                destroyAsteroid(a);
                             }
                         }
                     });
@@ -1368,16 +1492,14 @@ const AsteroidsGame: React.FC = () => {
                             spawnFloatingText(ship.pos, `+${HULL_ORB_VALUE} HULL`, COLORS.HULL);
                         } else {
                             const orb = o as ExpOrb;
-                            // Dynamic XP Value scaling with Level
-                            const baseVal = orb.value;
-                            const levelScaledVal = Math.floor(baseVal * (1 + currentLevel * 0.15));
-                            const finalVal = Math.floor(levelScaledVal * ship.stats.xpMult);
+                            // XP orbs give flat value (xpMult from Tractor Beam still applies)
+                            const finalVal = Math.floor(orb.value * ship.stats.xpMult);
 
+                            // XP orbs contribute to leveling
                             scoreRef.current += finalVal;
-                            setUiScore(scoreRef.current);
 
                             const color = orb.variant === 'SUPER' ? COLORS.XP_SUPER : COLORS.XP_NORMAL;
-                            spawnFloatingText(ship.pos, `+${finalVal}`, color, orb.variant === 'SUPER' ? 20 : 12);
+                            spawnFloatingText(ship.pos, `+${finalVal} XP`, color, orb.variant === 'SUPER' ? 20 : 12);
                         }
                     };
 
@@ -1389,14 +1511,10 @@ const AsteroidsGame: React.FC = () => {
                             if (a.toBeRemoved) return;
                             if (checkShipCollision(ship, a)) {
                                 if (a.type === EntityType.MoltenAsteroid) {
-                                    if (ship.stats.shieldCharges > 0) {
-                                        ship.stats.shieldCharges--;
+                                    if (triggerShieldSave()) {
                                         a.toBeRemoved = true;
                                         spawnParticles(a.pos, COLORS.MOLTEN, 40, 8);
-                                        screenShakeRef.current = 20;
-                                        ship.invulnerableUntil = Date.now() + 2000;
-                                        spawnFloatingText(ship.pos, "SHIELD SAVED!", COLORS.SHIELD, 20);
-                                        spawnParticles(ship.pos, COLORS.SHIELD, 30, 5);
+                                        screenShakeRef.current = 20; // Extra dramatic shake for molten
                                     } else {
                                         handleGameOver("Molten Incineration");
                                         ship.toBeRemoved = true;
@@ -1428,14 +1546,7 @@ const AsteroidsGame: React.FC = () => {
                                     }
 
                                     if (ship.hull <= 0) {
-                                        if (ship.stats.shieldCharges > 0) {
-                                            ship.stats.shieldCharges--;
-                                            ship.hull = 1;
-                                            ship.invulnerableUntil = Date.now() + 2000;
-                                            spawnFloatingText(ship.pos, "SHIELD SAVED!", COLORS.SHIELD, 20);
-                                            screenShakeRef.current = 15;
-                                            spawnParticles(ship.pos, COLORS.SHIELD, 30, 5);
-                                        } else {
+                                        if (!triggerShieldSave()) {
                                             handleGameOver("Hull Critical");
                                             ship.toBeRemoved = true;
                                         }
@@ -1642,7 +1753,7 @@ const AsteroidsGame: React.FC = () => {
                     ctx.rotate(angle);
 
                     let droneColor = COLORS.DRONE;
-                    let isHeavy = ship.stats.droneGunCount > 1;
+                    let isHeavy = ship.stats.droneDamageMult > 1.0; // Overclocked drones deal more damage
                     let isSpeed = ship.stats.droneFireRateMult < 0.9;
 
                     if (isHeavy) droneColor = '#60a5fa'; // Blue
@@ -1735,6 +1846,24 @@ const AsteroidsGame: React.FC = () => {
                         }
                         ctx.shadowBlur = 0;
                     }
+
+                    // Shield Radiation Aura Visual - only when shields are active
+                    if (ship.stats.shieldRadiationTier > 0 && ship.stats.shieldCharges > 0) {
+                        const radiationRadius = SHIELD_RADIATION_BASE_RADIUS + (ship.stats.shieldRadiationTier * SHIELD_RADIATION_RADIUS_PER_TIER);
+                        const pulseIntensity = 0.15 + Math.sin(frameCountRef.current * 0.08) * 0.1;
+
+                        ctx.save();
+                        ctx.strokeStyle = '#a855f7'; // Purple radiation
+                        ctx.lineWidth = 2 + ship.stats.shieldRadiationTier * 0.5;
+                        ctx.globalAlpha = pulseIntensity;
+                        ctx.setLineDash([10, 15]);
+                        ctx.lineDashOffset = -frameCountRef.current * 2;
+                        ctx.beginPath();
+                        ctx.arc(ship.pos.x, ship.pos.y, radiationRadius, 0, Math.PI * 2);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        ctx.restore();
+                    }
                 }
             }
 
@@ -1780,6 +1909,8 @@ const AsteroidsGame: React.FC = () => {
                 deathReason={deathReason}
                 xpBarRef={levelBarRef}
                 hullBarRef={hullBarRef}
+                shieldBarRef={shieldBarRef}
+                shieldTextRef={shieldTextRef}
                 onStartGame={initGame}
                 onToggleDevMode={() => setIsDevMode(!isDevMode)}
                 onToggleSandbox={() => setIsSandbox(!isSandbox)}

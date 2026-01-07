@@ -34,7 +34,7 @@ export const BULLET_RATE = 20;                  // Frames between shots (lower =
 export const BULLET_DAMAGE = 10;                // Damage per bullet hit
 
 // Invulnerability (in milliseconds)
-export const INVULN_DURATION_SHIELD = 2000;     // Invuln after shield saves you
+export const INVULN_DURATION_SHIELD = 5000;     // Invuln after shield saves you (5s)
 export const INVULN_DURATION_HIT = 300;         // Brief invuln after taking damage
 export const INVULN_BLINK_RATE = 100;           // Ship blink cycle during invuln
 
@@ -165,14 +165,25 @@ export const XP_SCALING_FACTOR = 1.20;          // XP requirement multiplier per
 // UPGRADES - Stat scaling per tier
 // ============================================================================
 
-// Per-tier multipliers (these define how powerful each upgrade level is)
 export const UPGRADE_ENGINE_MULT = 0.25;        // +25% speed per tier
-export const UPGRADE_REGEN_PER_TIER = 3;        // +3 HP/sec per tier
+export const UPGRADE_REGEN_PER_TIER = 1.5;      // +1.5 HP/sec per tier (nerfed)
 export const UPGRADE_HULL_MULT = 0.30;          // +30% max hull per tier
 export const UPGRADE_FIRE_RATE_REDUCTION = 0.20;// -20% fire delay per tier (min 10%)
 export const UPGRADE_VELOCITY_MULT = 0.25;      // +25% bullet speed per tier
 export const UPGRADE_MAGNET_RANGE = 60;         // +60px pickup range per tier
 export const UPGRADE_XP_MULT = 0.25;            // +25% XP value per tier
+
+// Drone Overclock specific
+export const UPGRADE_DRONE_FIRE_RATE_REDUCTION = 0.20; // -20% fire delay per tier
+export const UPGRADE_DRONE_DAMAGE_MULT = 0.15;  // +15% drone damage per tier
+export const UPGRADE_DRONE_RANGE_MULT = 0.25;   // +25% drone bullet range per tier
+
+// Shield Mechanics
+export const SHIELD_RECHARGE_TIME = 30000;      // 30 seconds per shield charge
+export const SHIELD_RADIATION_BASE_RADIUS = 175; // Base aura radius in pixels
+export const SHIELD_RADIATION_RADIUS_PER_TIER = 30; // +30px per tier
+export const SHIELD_RADIATION_BASE_DPS = 0;     // Base damage per second
+export const SHIELD_RADIATION_DPS_PER_TIER = 7; // +7 DPS per tier (tier 1 = 7 DPS)
 
 // Multishot spread angles
 export const MULTISHOT_SPREAD = {
@@ -250,7 +261,7 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'regen',
         name: 'Nano-Repair Bots',
-        description: (t) => `Passive Hull Regen +${(t * 3).toFixed(0)}/sec (Tier ${t})`,
+        description: (t) => `Passive Hull Regen +${(t * 1.5).toFixed(1)}/sec (Tier ${t})`,
         category: UpgradeCategory.TECH,
         color: 'text-green-400 border-green-500 shadow-green-500/50'
     },
@@ -287,7 +298,7 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'ricochet',
         name: 'Ricochet Rounds',
-        description: (t) => `Bullets bounce ${t}x to nearby enemies (60% dmg per bounce)`,
+        description: (t) => `Bullets bounce ${t}x to nearby enemies (50% dmg per bounce)`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
@@ -304,29 +315,30 @@ export const UPGRADES: UpgradeDef[] = [
         id: 'drone_rofl',
         parentId: 'drone',
         name: 'Drone: Overclock',
-        description: (t) => `Drone Fire Rate +20% (Tier ${t})`,
+        description: (t) => `Drone Fire +20%, Damage +15%, Range +25% (Tier ${t})`,
         category: UpgradeCategory.ADDONS,
         color: 'text-purple-200 border-purple-300 shadow-purple-300/30'
     },
     {
         id: 'magnet',
         name: 'Tractor Beam',
-        description: (t) => `Pickup Range +60px (Tier ${t})`,
+        description: (t) => `Pickup Range +60px, Orb Value +25% (Tier ${t})`,
         category: UpgradeCategory.ADDONS,
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     },
     {
         id: 'shield',
-        name: 'Emergency Shield',
-        description: (t) => `Prevents Death ${t} Time${t > 1 ? 's' : ''} (2s Invuln)`,
+        name: 'Energy Shield',
+        description: (t) => `${t} Shield Charge${t > 1 ? 's' : ''}, 5s Invuln, Recharges 30s`,
         category: UpgradeCategory.ADDONS,
         color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
     },
     {
-        id: 'scavenger',
-        name: 'Void Scavenger',
-        description: (t) => `Orb Value +25% (Tier ${t})`,
+        id: 'shield_radiation',
+        parentId: 'shield',
+        name: 'Shield: Radiation',
+        description: (t) => `Aura deals ${t * 7} DPS in ${175 + t * 30}px (Tier ${t})`,
         category: UpgradeCategory.ADDONS,
-        color: 'text-purple-400 border-purple-500 shadow-purple-500/50'
+        color: 'text-purple-200 border-purple-300 shadow-purple-300/30'
     }
 ];

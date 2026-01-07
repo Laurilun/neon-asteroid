@@ -62,7 +62,8 @@ export function getBullet(): Bullet {
         color: '#fff',
         toBeRemoved: false,
         life: 16,
-        damage: 10
+        damage: 10,
+        bouncesRemaining: 0
     };
 }
 
