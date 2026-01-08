@@ -61,14 +61,26 @@ export interface Ship extends Entity {
   isFrozen: boolean; // Track if currently in a slow field
 }
 
+// Fracture data for smart asteroid breaking
+export interface FractureData {
+  // Jagged fracture paths from center outward (one per split line)
+  fracturePaths: Vector[][];
+  // Pre-computed child shapes (2-4 pieces depending on size)
+  childShapes: Vector[][];
+  // Separation vectors for each child (direction to push apart)
+  separationVectors: Vector[];
+}
+
 export interface Asteroid extends Entity {
   vertices: Vector[]; // For jagged polygon rendering
   hp: number;
+  maxHp: number; // Starting HP for damage percentage calculation
   sizeCategory: 1 | 2 | 3; // 3 = large, 2 = medium, 1 = small
   hitFlash: number; // Number of frames to render white
   rotation: number; // Current visual rotation
   rotationSpeed: number; // Radians per frame
   pulsateOffset: number; // Offset for glow animation
+  fractureData?: FractureData; // Pre-computed fracture for splitting (size 2+)
 }
 
 export interface Bullet extends Entity {

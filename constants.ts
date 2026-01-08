@@ -51,11 +51,15 @@ export const ASTEROID_SPEED_BASE = 0.8;         // Base movement speed
 export const ASTEROID_ROTATION_SPEED = 0.02;    // Max rotation per frame
 export const ASTEROID_HULL_DAMAGE = 20;         // Damage to player from medium/large
 export const ASTEROID_SMALL_DAMAGE = 8;         // Damage from small asteroids
+export const ASTEROID_SPLITS = true;            // Normal asteroids split when destroyed
+export const ASTEROID_SPLIT_COUNT = 2;          // Into 2 pieces
+export const ASTEROID_SPLIT_MIN_SIZE = 2;       // Only medium+ asteroids split
 
 // --- Molten Asteroids (Fast, deadly) ---
 export const MOLTEN_SPEED_MULTIPLIER = 2.2;     // Speed relative to base
 export const MOLTEN_RADIUS = { SMALL: 20, LARGE: 45 };
 export const MOLTEN_HP = { SMALL: 30, LARGE: 100 };
+export const MOLTEN_SPLITS = false;             // Molten asteroids explode, don't split
 
 // --- Iron Asteroids (Armored swarm) ---
 export const IRON_SPEED = 5.5;                  // Very fast
@@ -64,6 +68,7 @@ export const IRON_DAMAGE = 15;                  // Damage on collision
 export const IRON_KNOCKBACK = 35;               // Pushback force on hit
 export const IRON_RADIUS = { SMALL: 15, MEDIUM: 30 };
 export const IRON_COLOR = '#7c2d12';            // Rusty/Dark Iron
+export const IRON_SPLITS = false;               // Iron asteroids are destroyed outright
 
 // --- Frozen Asteroids (Slow aura hazard) ---
 export const FROZEN_SPEED = 0.4;                // Slow-moving
@@ -73,6 +78,12 @@ export const FROZEN_AURA_RANGE = 220;           // Slowing aura radius
 export const FROZEN_AURA_DAMAGE = 0.1;          // Damage per frame in aura
 export const FROZEN_SLOW_FACTOR = 0.4;          // 60% speed reduction in aura
 export const FROZEN_COLOR = '#06b6d4';          // Cyan
+export const FROZEN_SPLITS = false;             // Frozen asteroids shatter completely
+
+// --- Asteroid Splitting (shared settings) ---
+export const ASTEROID_SPLIT_SEPARATION_SPEED = 0.4;  // Gentle push-apart velocity
+export const ASTEROID_SPLIT_OFFSET_RATIO = 0.5;      // Spawn offset as ratio of parent radius
+
 
 // ============================================================================
 // SPAWNING - Formation patterns and spawn rates
@@ -176,14 +187,14 @@ export const UPGRADE_XP_MULT = 0.25;            // +25% XP value per tier
 // Drone Overclock specific
 export const UPGRADE_DRONE_FIRE_RATE_REDUCTION = 0.20; // -20% fire delay per tier
 export const UPGRADE_DRONE_DAMAGE_MULT = 0.15;  // +15% drone damage per tier
-export const UPGRADE_DRONE_RANGE_MULT = 0.25;   // +25% drone bullet range per tier
+export const UPGRADE_DRONE_RANGE_MULT = 0.35;   // +35% drone bullet range per tier (buffed)
 
 // Shield Mechanics
 export const SHIELD_RECHARGE_TIME = 30000;      // 30 seconds per shield charge
 export const SHIELD_RADIATION_BASE_RADIUS = 175; // Base aura radius in pixels
-export const SHIELD_RADIATION_RADIUS_PER_TIER = 30; // +30px per tier
+export const SHIELD_RADIATION_RADIUS_PER_TIER = 15; // +15px per tier (nerfed from 30)
 export const SHIELD_RADIATION_BASE_DPS = 0;     // Base damage per second
-export const SHIELD_RADIATION_DPS_PER_TIER = 7; // +7 DPS per tier (tier 1 = 7 DPS)
+export const SHIELD_RADIATION_DPS_PER_TIER = 4; // +4 DPS per tier (nerfed from 7)
 
 // Multishot spread angles
 export const MULTISHOT_SPREAD = {

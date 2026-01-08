@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-    Asteroid, Bullet, EntityType, GameState, Particle, Ship, ExpOrb, HullOrb, Vector, Drone, UpgradeCategory, UpgradeDef, Entity
+    Asteroid, Bullet, EntityType, GameState, Particle, Ship, ExpOrb, HullOrb, Vector, Drone, UpgradeCategory, UpgradeDef, Entity, FractureData
 } from '../types';
 import {
     // Ship
@@ -14,7 +14,11 @@ import {
     ASTEROID_HULL_DAMAGE, ASTEROID_SMALL_DAMAGE,
     MOLTEN_SPEED_MULTIPLIER, MOLTEN_RADIUS, MOLTEN_HP,
     IRON_SPEED, IRON_HP_MULT, IRON_DAMAGE, IRON_KNOCKBACK, IRON_RADIUS, IRON_COLOR,
-    FROZEN_SPEED, FROZEN_HP, FROZEN_RADIUS, FROZEN_AURA_RANGE, FROZEN_AURA_DAMAGE, FROZEN_SLOW_FACTOR, FROZEN_COLOR,
+    FROZEN_SPEED, FROZEN_HP, FROZEN_RADIUS, FROZEN_AURA_RANGE, FROZEN_AURA_DAMAGE, FROZEN_SLOW_FACTOR, FROZEN_COLOR, FROZEN_SPLITS,
+    // Asteroid Splitting
+    ASTEROID_SPLITS, ASTEROID_SPLIT_COUNT, ASTEROID_SPLIT_MIN_SIZE,
+    MOLTEN_SPLITS, IRON_SPLITS,
+    ASTEROID_SPLIT_SEPARATION_SPEED, ASTEROID_SPLIT_OFFSET_RATIO,
     // Spawning
     FORMATION_CHANCE, FORMATION_COUNT, FORMATION_SPREAD, FORMATION_BUFFER, FORMATION_SPEED_MULT,
     SINGLE_SPAWN_BUFFER, LEVEL_SPEED_SCALING, TARGET_DENSITY_BASE, TARGET_DENSITY_SCALING,
@@ -63,6 +67,8 @@ const generatePolygon = (radius: number, sides: number, irregularity: number): V
     }
     return vertices;
 };
+
+// (generateFractureData removed - simplified breaking system uses position offsets instead)
 
 // Precise collision detection for triangular ship vs circular/polygonal asteroid
 const checkShipCollision = (ship: Ship, asteroid: Asteroid): boolean => {
@@ -265,6 +271,7 @@ const AsteroidsGame: React.FC = () => {
                     toBeRemoved: false,
                     vertices: generatePolygon(ASTEROID_RADIUS.MEDIUM, 8, 10),
                     hp: Infinity, // Infinite HP
+                    maxHp: Infinity,
                     sizeCategory: 2,
                     hitFlash: 0,
                     rotation: 0,
@@ -285,6 +292,7 @@ const AsteroidsGame: React.FC = () => {
                 toBeRemoved: false,
                 vertices: generatePolygon(ASTEROID_RADIUS.LARGE, 10, 15),
                 hp: Infinity,
+                maxHp: Infinity,
                 sizeCategory: 3,
                 hitFlash: 0,
                 rotation: 0,
@@ -309,6 +317,7 @@ const AsteroidsGame: React.FC = () => {
                     toBeRemoved: false,
                     vertices: generatePolygon(ASTEROID_RADIUS.MEDIUM, 8, 10),
                     hp: Infinity,
+                    maxHp: Infinity,
                     sizeCategory: 2,
                     hitFlash: 0,
                     rotation: 0,
@@ -387,6 +396,9 @@ const AsteroidsGame: React.FC = () => {
         const hpBase = sizeCat === 3 ? ASTEROID_HP_BASE.LARGE : sizeCat === 2 ? ASTEROID_HP_BASE.MEDIUM : ASTEROID_HP_BASE.SMALL;
         const hp = hpBase * (1 + (levelRef.current - 1) * ASTEROID_HP_SCALING);
 
+        // Generate vertices for this asteroid
+        const vertices = generatePolygon(radius, 10 + sizeCat * 2, sizeCat * 4);
+
         asteroidsRef.current.push({
             id: Math.random().toString(36).substr(2, 9),
             type: EntityType.Asteroid,
@@ -396,8 +408,9 @@ const AsteroidsGame: React.FC = () => {
             angle: 0,
             color: COLORS.ASTEROID,
             toBeRemoved: false,
-            vertices: generatePolygon(radius, 10 + sizeCat * 2, sizeCat * 4),
+            vertices: vertices,
             hp: hp,
+            maxHp: hp,
             sizeCategory: sizeCat,
             hitFlash: 0,
             rotation: Math.random() * Math.PI * 2,
@@ -472,6 +485,7 @@ const AsteroidsGame: React.FC = () => {
             toBeRemoved: false,
             vertices: generatePolygon(radius, 10 + sizeCat * 2, sizeCat * 4),
             hp: hp,
+            maxHp: hp,
             sizeCategory: sizeCat,
             hitFlash: 0,
             rotation: Math.random() * Math.PI * 2,
@@ -527,6 +541,7 @@ const AsteroidsGame: React.FC = () => {
                 toBeRemoved: false,
                 vertices: generatePolygon(radius, 6 + sizeCat * 2, 5),
                 hp: hp,
+                maxHp: hp,
                 sizeCategory: sizeCat,
                 hitFlash: 0,
                 rotation: Math.random() * Math.PI * 2,
@@ -563,6 +578,7 @@ const AsteroidsGame: React.FC = () => {
             toBeRemoved: false,
             vertices: generatePolygon(radius, 12, 10),
             hp: FROZEN_HP * (1 + currentLevel * ASTEROID_HP_SCALING),
+            maxHp: FROZEN_HP * (1 + currentLevel * ASTEROID_HP_SCALING),
             sizeCategory: 3,
             hitFlash: 0,
             rotation: Math.random() * Math.PI * 2,
@@ -679,11 +695,42 @@ const AsteroidsGame: React.FC = () => {
         spawnParticles(a.pos, a.color, 1, 0, 'SHOCKWAVE');
         spawnParticles(a.pos, a.color, 8, 4, 'DEBRIS');
 
-        // Splitting
-        if (a.type === EntityType.Asteroid && a.sizeCategory > 1) {
+        // Splitting - check if this asteroid type splits
+        // Get split setting based on entity type
+        const shouldSplit = (() => {
+            switch (a.type) {
+                case EntityType.MoltenAsteroid: return MOLTEN_SPLITS;
+                case EntityType.IronAsteroid: return IRON_SPLITS;
+                case EntityType.FrozenAsteroid: return FROZEN_SPLITS;
+                default: return ASTEROID_SPLITS && a.sizeCategory >= ASTEROID_SPLIT_MIN_SIZE;
+            }
+        })();
+
+        if (shouldSplit) {
             const newSize = (a.sizeCategory - 1) as 1 | 2;
-            createAsteroid({ ...a.pos }, { x: a.vel.x + randomRange(-0.5, 0.5), y: a.vel.y + randomRange(-0.5, 0.5) }, newSize);
-            createAsteroid({ ...a.pos }, { x: a.vel.x + randomRange(-0.5, 0.5), y: a.vel.y + randomRange(-0.5, 0.5) }, newSize);
+            const splitCount = ASTEROID_SPLIT_COUNT;
+
+            // Calculate separation angles for even distribution
+            const baseAngle = Math.random() * Math.PI * 2;
+            const angleStep = (Math.PI * 2) / splitCount;
+
+            for (let i = 0; i < splitCount; i++) {
+                const sepAngle = baseAngle + (angleStep * i);
+                const sepSpeed = ASTEROID_SPLIT_SEPARATION_SPEED;
+                const offsetDist = a.radius * ASTEROID_SPLIT_OFFSET_RATIO;
+
+                createAsteroid(
+                    {
+                        x: a.pos.x + Math.cos(sepAngle) * offsetDist,
+                        y: a.pos.y + Math.sin(sepAngle) * offsetDist
+                    },
+                    {
+                        x: a.vel.x + Math.cos(sepAngle) * sepSpeed,
+                        y: a.vel.y + Math.sin(sepAngle) * sepSpeed
+                    },
+                    newSize
+                );
+            }
         }
 
         // Loot
@@ -1290,8 +1337,9 @@ const AsteroidsGame: React.FC = () => {
                                 drone.vel.x -= Math.cos(angle) * DRONE_RECOIL;
                                 drone.vel.y -= Math.sin(angle) * DRONE_RECOIL;
 
-                                // Drones have base 1.5x range, scaled by Overclock
-                                const droneBulletLife = BULLET_LIFE * 1.5 * stats.droneRangeMult;
+                                // Drones have base 1.5x range, scaled by Overclock, plus random 0-50% extra for natural look
+                                const baseRange = BULLET_LIFE * 1.5 * stats.droneRangeMult;
+                                const droneBulletLife = baseRange * (1 + Math.random() * 0.5);
 
                                 bulletsRef.current.push({
                                     id: Math.random().toString(),
@@ -1758,6 +1806,8 @@ const AsteroidsGame: React.FC = () => {
                         ctx.fill();
                     }
                 }
+
+                // (Fracture line rendering removed - the position offset + shockwave gives better breaking feel)
 
                 ctx.restore();
             });
