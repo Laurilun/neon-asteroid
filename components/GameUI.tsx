@@ -339,11 +339,11 @@ const GameUI: React.FC<GameUIProps> = ({
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                             <span className="text-gray-500">FIRE RATE</span>
-                                            <span className="text-red-400 font-bold">{(60 / (BULLET_RATE * ship.stats.fireRateMult)).toFixed(1)}/s</span>
+                                            <span className="text-red-400 font-bold">{Math.round((1 / ship.stats.fireRateMult) * 100)}%</span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                             <span className="text-gray-500">RANGE</span>
-                                            <span className="text-red-400 font-bold">{Math.round(BULLET_LIFE * (1 + ship.stats.rangeTier * 0.25))} frames</span>
+                                            <span className="text-red-400 font-bold">{Math.round(BULLET_LIFE * (1 + ship.stats.rangeTier * 0.25) * 8)}px</span>
                                         </div>
                                         {ship.stats.multishotTier > 0 && (
                                             <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">

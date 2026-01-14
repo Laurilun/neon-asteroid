@@ -14,6 +14,7 @@ export enum EntityType {
   Particle = 'PARTICLE',
   ExpOrb = 'EXP_ORB',
   HullOrb = 'HULL_ORB',
+  FreebieOrb = 'FREEBIE_ORB',
   Drone = 'DRONE',
 }
 
@@ -75,7 +76,7 @@ export interface Asteroid extends Entity {
   vertices: Vector[]; // For jagged polygon rendering
   hp: number;
   maxHp: number; // Starting HP for damage percentage calculation
-  sizeCategory: 1 | 2 | 3; // 3 = large, 2 = medium, 1 = small
+  sizeCategory: 1 | 2 | 3 | 4; // 1=small, 2=medium, 3=large, 4=xlarge
   hitFlash: number; // Number of frames to render white
   rotation: number; // Current visual rotation
   rotationSpeed: number; // Radians per frame
@@ -112,6 +113,11 @@ export interface HullOrb extends Entity {
   pulsateOffset: number;
 }
 
+// Rare drop from special asteroids - grants free upgrade without level increase
+export interface FreebieOrb extends Entity {
+  pulsateOffset: number;
+  sparklePhase: number;
+}
 export interface Drone extends Entity {
   targetId: string | null;
   orbitOffset: number; // Offset angle in the swarm ring

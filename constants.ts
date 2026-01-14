@@ -39,89 +39,182 @@ export const INVULN_DURATION_HIT = 300;         // Brief invuln after taking dam
 export const INVULN_BLINK_RATE = 100;           // Ship blink cycle during invuln
 
 // ============================================================================
-// ENEMIES - All asteroid types and their properties
+// ASTEROIDS - Universal Size & Type System
+// ============================================================================
+// All asteroid properties are calculated from: BASE × SIZE_MULT × TYPE_MULT
+// This allows for clean, consistent scaling across all combinations.
 // ============================================================================
 
-// --- Regular Asteroids ---
-// Size categories: 1=Small, 2=Medium, 3=Large
-export const ASTEROID_RADIUS = { SMALL: 18, MEDIUM: 35, LARGE: 65 };
-export const ASTEROID_HP_BASE = { SMALL: 20, MEDIUM: 50, LARGE: 150 };
-export const ASTEROID_HP_SCALING = 0.1;         // +10% HP per player level
-export const ASTEROID_SPEED_BASE = 0.8;         // Base movement speed
-export const ASTEROID_ROTATION_SPEED = 0.02;    // Max rotation per frame
-export const ASTEROID_HULL_DAMAGE = 20;         // Damage to player from medium/large
-export const ASTEROID_SMALL_DAMAGE = 8;         // Damage from small asteroids
-export const ASTEROID_SPLITS = true;            // Normal asteroids split when destroyed
-export const ASTEROID_SPLIT_COUNT = 2;          // Into 2 pieces
-export const ASTEROID_SPLIT_MIN_SIZE = 2;       // Only medium+ asteroids split
+// --- Size Categories ---
+// All asteroid types can spawn in any of these sizes (level-gated)
+export const ASTEROID_SIZES = {
+    SMALL: 1,
+    MEDIUM: 2,
+    LARGE: 3,
+    XLARGE: 4
+} as const;
 
-// --- Molten Asteroids (Fast, deadly) ---
-export const MOLTEN_SPEED_MULTIPLIER = 2.2;     // Speed relative to base
-export const MOLTEN_RADIUS = { SMALL: 20, LARGE: 45 };
-export const MOLTEN_HP = { SMALL: 30, LARGE: 100 };
-export const MOLTEN_SPLITS = false;             // Molten asteroids explode, don't split
-
-// --- Iron Asteroids (Armored swarm) ---
-export const IRON_SPEED = 5.5;                  // Very fast
-export const IRON_HP_MULT = 5.0;                // HP multiplier vs regular asteroids
-export const IRON_DAMAGE = 15;                  // Damage on collision
-export const IRON_KNOCKBACK = 35;               // Pushback force on hit
-export const IRON_RADIUS = { SMALL: 15, MEDIUM: 30 };
-export const IRON_COLOR = '#7c2d12';            // Rusty/Dark Iron
-export const IRON_SPLITS = false;               // Iron asteroids are destroyed outright
-
-// --- Frozen Asteroids (Slow aura hazard) ---
-export const FROZEN_SPEED = 0.4;                // Slow-moving
-export const FROZEN_HP = 400;                   // Very tanky
-export const FROZEN_RADIUS = 60;                // Large size
-export const FROZEN_AURA_RANGE = 220;           // Slowing aura radius
-export const FROZEN_AURA_DAMAGE = 0.1;          // Damage per frame in aura
-export const FROZEN_SLOW_FACTOR = 0.4;          // 60% speed reduction in aura
-export const FROZEN_COLOR = '#06b6d4';          // Cyan
-export const FROZEN_SPLITS = false;             // Frozen asteroids shatter completely
-
-// --- Asteroid Splitting (shared settings) ---
-export const ASTEROID_SPLIT_SEPARATION_SPEED = 0.4;  // Gentle push-apart velocity
-export const ASTEROID_SPLIT_OFFSET_RATIO = 0.5;      // Spawn offset as ratio of parent radius
-
-
-// ============================================================================
-// SPAWNING - Formation patterns and spawn rates
-// ============================================================================
-
-// Formation Spawning
-export const FORMATION_CHANCE = 0.25;           // Chance to spawn formation vs single
-export const FORMATION_COUNT = { MIN: 6, MAX: 10 }; // Asteroids per formation
-export const FORMATION_SPREAD = 300;            // Position spread in formation
-export const FORMATION_BUFFER = 300;            // Spawn distance from screen edge
-export const FORMATION_SPEED_MULT = 1.1;        // Speed boost for formation asteroids
-
-// Single Asteroid Spawning
-export const SINGLE_SPAWN_BUFFER = 80;          // Spawn distance from edge
-
-// Level-based Scaling
-export const LEVEL_SPEED_SCALING = 0.05;        // +5% asteroid speed per level
-export const TARGET_DENSITY_BASE = 4;           // Minimum asteroids on screen
-export const TARGET_DENSITY_SCALING = 10;       // Max additional asteroids (caps at level 10)
-
-// Spawn Rates (frames @ 60 FPS)
-export const SPAWN_RATES = {
-    MOLTEN: { START: 1000, MIN: 350, DECREASE: 50, VARIANCE: 300 },
-    IRON: { START: 1200, MIN: 600, DECREASE: 40, VARIANCE: 300 },
-    FROZEN: { START: 1800, MIN: 900, DECREASE: 80, VARIANCE: 600 }
+// --- Base Values (before multipliers) ---
+export const ASTEROID_BASE = {
+    RADIUS: 18,          // Base radius in pixels
+    HP: 25,              // Base hit points
+    SPEED: 0.8,          // Base movement speed
+    DAMAGE: 25,          // Base collision damage (increased for difficulty!)
+    ROTATION: 0.015,     // Base rotation speed (radians/frame)
+    VERTICES: 8,         // Base polygon vertices
+    XP_VALUE: 30         // Base XP orb value
 };
 
-// Progression Gates (level required to spawn)
-export const LEVEL_GATE_LARGE_ASTEROIDS = 2;
-export const LEVEL_GATE_MOLTEN_SMALL = 3;
-export const LEVEL_GATE_IRON = 4;
-export const LEVEL_GATE_FROZEN = 5;
-export const LEVEL_GATE_MOLTEN_LARGE = 8;
+// --- Size Multipliers (applied to base values) ---
+// Designed so larger = tankier but not necessarily deadlier
+export const SIZE_MULTIPLIERS = {
+    [ASTEROID_SIZES.SMALL]: { radius: 1.0, hp: 1.0, speed: 1.1, damage: 0.6, vertices: 0, xp: 1.0 },
+    [ASTEROID_SIZES.MEDIUM]: { radius: 1.9, hp: 2.5, speed: 1.0, damage: 1.0, vertices: 2, xp: 1.5 },
+    [ASTEROID_SIZES.LARGE]: { radius: 3.5, hp: 6.0, speed: 0.9, damage: 1.5, vertices: 4, xp: 3.0 },
+    [ASTEROID_SIZES.XLARGE]: { radius: 5.5, hp: 15.0, speed: 0.75, damage: 2.5, vertices: 6, xp: 6.0 }
+};
 
-// Iron Swarm
-export const IRON_SWARM_COUNT = { MIN: 3, MAX: 4 };
-export const IRON_SWARM_SPREAD = 70;            // Position spread in swarm
+// --- Type Definitions ---
+// Each type has unique behavior characteristics
+export type AsteroidTypeName = 'REGULAR' | 'MOLTEN' | 'IRON' | 'FROZEN';
 
+export interface AsteroidTypeConfig {
+    speedMult: number;       // Speed multiplier
+    hpMult: number;          // HP multiplier
+    damageMult: number;      // Collision damage multiplier
+    knockbackMult?: number;  // Knockback multiplier (Iron = massive pushback)
+    splits: boolean;         // Does this type split when destroyed?
+    color: string;           // Render color
+    glowColor?: string;      // Optional glow effect color
+    // Special behaviors
+    homingBurst?: boolean;   // Iron: launches fast toward player
+    hasAura?: boolean;       // Has damaging/slowing aura
+    auraRange?: number;      // Base aura radius (if hasAura)
+    auraSizeScale?: number;  // Aura scales with size (0.25 = +25% per size tier)
+    auraSlowFactor?: number; // Speed reduction in aura (0.4 = 60% slower, 1.0 = no slow)
+    auraDPS?: number;        // Damage per second in aura
+}
+
+export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
+    REGULAR: {
+        speedMult: 1.0,
+        hpMult: 1.0,
+        damageMult: 1.0,
+        splits: true,
+        color: '#9ca3af'
+    },
+    MOLTEN: {
+        speedMult: 2.0,           // Fast and aggressive
+        hpMult: 2.5,              // Tanky
+        damageMult: 5.0,          // DEADLY damage
+        splits: false,
+        hasAura: true,            // NEW: Burn aura!
+        auraRange: 40,            // Small burn ring (scales with size)
+        auraSizeScale: 0.3,       // +30% range per size tier
+        auraDPS: 30,              // HIGH burn damage
+        auraSlowFactor: 1.0,      // No slow effect
+        color: '#ef4444',
+        glowColor: '#f97316'
+    },
+    IRON: {
+        speedMult: 3.5,           // Slightly slower (was 5.0)
+        hpMult: 0.8,              // Low HP - squishy
+        damageMult: 1.5,          // Moderate damage - danger is knockback!
+        knockbackMult: 4.0,       // MASSIVE knockback
+        splits: false,
+        homingBurst: true,        // Launches directly at player
+        color: '#7c2d12',
+        glowColor: '#a16207'
+    },
+    FROZEN: {
+        speedMult: 0.4,           // Slow moving
+        hpMult: 5.0,              // Very tanky
+        damageMult: 1.0,          // Normal contact damage
+        splits: false,
+        hasAura: true,
+        auraRange: 120,           // Base aura (scales with size)
+        auraSizeScale: 0.25,      // +25% range per size tier
+        auraSlowFactor: 0.4,      // Player moves at 40% speed in aura
+        auraDPS: 15,              // Increased (was 12)
+        color: '#06b6d4',
+        glowColor: '#22d3ee'
+    }
+};
+
+// --- Splitting Mechanics ---
+export const ASTEROID_SPLIT_COUNT_NORMAL = 2;   // Medium/Large split into 2
+export const ASTEROID_SPLIT_COUNT_XLARGE = 3;   // XLARGE splits into 3!
+export const ASTEROID_SPLIT_MIN_SIZE = ASTEROID_SIZES.MEDIUM; // Only medium+ split
+export const ASTEROID_SPLIT_SEPARATION_SPEED = 0.4;
+export const ASTEROID_SPLIT_OFFSET_RATIO = 0.5;
+
+// ============================================================================
+// SPAWNING - Progression & Scaling for Endless Play
+// ============================================================================
+// Designed to scale smoothly from level 1 to 100+ without hard caps
+
+// --- Spawn Timing ---
+export const SPAWN_INTERVAL_BASE = 90;       // Base frames between spawns
+export const SPAWN_INTERVAL_MIN = 20;        // Minimum spawn interval (caps speed)
+export const SPAWN_INTERVAL_DECAY = 0.97;    // Multiply interval by this each level
+
+// --- Screen Density ---
+export const TARGET_ASTEROID_BASE = 4;       // Min asteroids at level 1
+export const TARGET_ASTEROID_PER_LEVEL = 0.8;// +0.8 asteroids per level
+export const TARGET_ASTEROID_MAX = 30;       // Soft cap (can exceed slightly)
+
+// --- Level Scaling ---
+export const LEVEL_HP_SCALING = 0.08;        // +8% HP per level (compounds)
+export const LEVEL_SPEED_SCALING = 0.02;     // +2% speed per level (caps at +100%)
+export const LEVEL_SPEED_CAP = 2.0;          // Max speed multiplier from levels
+
+// --- Type Spawn Gates (level required for each type/size combo) ---
+// Uses formula: level >= GATE[type][size] to determine if can spawn
+// EARLY danger: specials appear quickly!
+export const SPAWN_GATES = {
+    REGULAR: { SMALL: 1, MEDIUM: 1, LARGE: 2, XLARGE: 8 },
+    MOLTEN: { SMALL: 2, MEDIUM: 4, LARGE: 6, XLARGE: 12 },
+    IRON: { SMALL: 3, MEDIUM: 999, LARGE: 999, XLARGE: 999 }, // IRON = SMALL ONLY
+    FROZEN: { SMALL: 4, MEDIUM: 6, LARGE: 9, XLARGE: 18 }
+};
+
+// --- Iron Shotgun Burst (Iron ALWAYS spawns as burst of pebbles) ---
+export const IRON_BURST_COUNT_MIN = 2;       // Min pebbles in shotgun
+export const IRON_BURST_COUNT_MAX = 4;       // Max pebbles (was 5, favor smaller bursts)
+export const IRON_BURST_SPEED_MULT = 1.8;    // Fast but not crazy (was 2.0)
+export const IRON_BURST_SPREAD = 0.2;        // More accurate aimed at player (was 0.4)
+
+// --- Type Spawn Weights (relative chance to spawn each type) ---
+// Higher = more common. Weights scale with level for variety.
+export const TYPE_SPAWN_WEIGHTS = {
+    REGULAR: { base: 100, perLevel: -2, min: 30 }, // Decreases over time
+    MOLTEN: { base: 0, perLevel: 3, max: 40 }, // Increases to 40
+    IRON: { base: 0, perLevel: 1, max: 12 }, // Low frequency - bursts are impactful
+    FROZEN: { base: 0, perLevel: 1, max: 15 }  // Rare but increases
+};
+
+// --- Size Spawn Weights (relative chance for each size) ---
+// Larger sizes become more common at higher levels
+export const SIZE_SPAWN_WEIGHTS = {
+    SMALL: { base: 60, perLevel: -1.5, min: 25 },
+    MEDIUM: { base: 35, perLevel: 0, min: 25, max: 35 },
+    LARGE: { base: 5, perLevel: 0.8, max: 25 },
+    XLARGE: { base: 0, perLevel: 0.3, max: 8 }  // Reduced (was 0.5, max 15)
+};
+
+// --- Freebie Upgrade Orb (rare drop from special asteroids) ---
+export const FREEBIE_ORB_RADIUS = 12;        // Larger than XP orbs
+export const FREEBIE_DROP_CHANCE_BASE = 0.05; // 5% base chance (1/20) from specials
+export const FREEBIE_DROP_CHANCE_PER_SIZE = 0.00; // No size scaling - flat 5%
+
+// --- Swarm Burst Spawning ---
+// Occasional burst spawns of multiple asteroids from one direction
+export const SWARM_BURST_CHANCE = 0.15;      // 15% chance per spawn to be a burst
+export const SWARM_BURST_COUNT_MIN = 3;      // Min asteroids in burst
+export const SWARM_BURST_COUNT_MAX = 5;      // Max asteroids in burst
+export const SWARM_BURST_SPEED_MULT = 1.5;   // Burst asteroids move 1.5x faster
+export const SWARM_BURST_SPREAD = 0.25;      // Radians spread (tighter = more dangerous)
+export const SWARM_BURST_DELAY = 3;          // Frames between each asteroid in burst
 // ============================================================================
 // DRONES - Autonomous companion orbiters
 // ============================================================================
@@ -185,9 +278,9 @@ export const UPGRADE_MAGNET_RANGE = 60;         // +60px pickup range per tier
 export const UPGRADE_XP_MULT = 0.25;            // +25% XP value per tier
 
 // Drone Overclock specific
-export const UPGRADE_DRONE_FIRE_RATE_REDUCTION = 0.20; // -20% fire delay per tier
-export const UPGRADE_DRONE_DAMAGE_MULT = 0.15;  // +15% drone damage per tier
-export const UPGRADE_DRONE_RANGE_MULT = 0.35;   // +35% drone bullet range per tier (buffed)
+export const UPGRADE_DRONE_FIRE_RATE_REDUCTION = 0.12; // -12% fire delay per tier (nerfed from 20%)
+export const UPGRADE_DRONE_DAMAGE_MULT = 0.10;  // +10% drone damage per tier (nerfed from 15%)
+export const UPGRADE_DRONE_RANGE_MULT = 0.20;   // +20% drone bullet range per tier (nerfed from 35%)
 
 // Shield Mechanics
 export const SHIELD_RECHARGE_TIME = 30000;      // 30 seconds per shield charge
