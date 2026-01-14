@@ -14,6 +14,7 @@ interface GameUIProps {
     isDevMode: boolean;
     isSandbox: boolean;
     showDamageNumbers: boolean;
+    isFreebie?: boolean;
     startLevel: number;
     deathReason: string;
     xpBarRef: React.RefObject<HTMLDivElement | null>;
@@ -52,7 +53,7 @@ const AddonIcon = () => (
 
 const GameUI: React.FC<GameUIProps> = ({
     gameState, score, level, ship, pendingUpgrades, offeredUpgrades, activeUpgrades,
-    isDevMode, isSandbox, showDamageNumbers, startLevel, deathReason, xpBarRef, hullBarRef, shieldBarRef, shieldTextRef, hullTextRef, xpTextRef, regenTextRef,
+    isDevMode, isSandbox, showDamageNumbers, isFreebie, startLevel, deathReason, xpBarRef, hullBarRef, shieldBarRef, shieldTextRef, hullTextRef, xpTextRef, regenTextRef,
     onStartGame, onToggleDevMode, onToggleSandbox, onToggleDamageNumbers, onSetStartLevel, onSelectUpgrade
 }) => {
 
@@ -284,10 +285,18 @@ const GameUI: React.FC<GameUIProps> = ({
                     <div className="flex justify-between items-end border-b border-gray-800 pb-6">
                         <div>
                             <h2 className="text-5xl font-black text-white tracking-tighter mb-2">
-                                SYSTEM <span className="text-yellow-400">UPGRADE</span>
+                                {isFreebie ? (
+                                    <>FREE <span className="text-green-400">UPGRADE</span></>
+                                ) : (
+                                    <>SYSTEM <span className="text-yellow-400">UPGRADE</span></>
+                                )}
                             </h2>
                             <p className="text-gray-400 font-mono text-sm tracking-widest">
-                                AUGMENTATION REQUIRED <span className="text-cyan-500 mx-2">//</span> <span className="text-white">{pendingUpgrades > 0 ? `${pendingUpgrades} POINTS REMAINING` : 'SELECT MODULE'}</span>
+                                {isFreebie ? (
+                                    <span className="text-green-400 font-bold animate-pulse">AUTHORIZATION GRANTED <span className="text-white mx-2">//</span> SELECT ANY MODULE</span>
+                                ) : (
+                                    <>AUGMENTATION REQUIRED <span className="text-cyan-500 mx-2">//</span> <span className="text-white">{pendingUpgrades > 0 ? `${pendingUpgrades} POINTS REMAINING` : 'SELECT MODULE'}</span></>
+                                )}
                             </p>
                         </div>
                         <div className="text-right">

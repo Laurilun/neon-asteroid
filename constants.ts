@@ -108,10 +108,10 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
         hpMult: 2.5,              // Tanky
         damageMult: 5.0,          // DEADLY damage
         splits: false,
-        hasAura: true,            // NEW: Burn aura!
+        hasAura: true,            // Burn aura!
         auraRange: 40,            // Small burn ring (scales with size)
         auraSizeScale: 0.3,       // +30% range per size tier
-        auraDPS: 30,              // HIGH burn damage
+        auraDPS: 50,              // VERY HIGH burn damage (brief contact = punishing)
         auraSlowFactor: 1.0,      // No slow effect
         color: '#ef4444',
         glowColor: '#f97316'

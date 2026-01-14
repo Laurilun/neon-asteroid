@@ -131,6 +131,7 @@ const AsteroidsGame: React.FC = () => {
     const [isSandbox, setIsSandbox] = useState(false);
     const [showDamageNumbers, setShowDamageNumbers] = useState(true); // Default ON
     const [startLevel, setStartLevel] = useState(1);
+    const [isFreebie, setIsFreebie] = useState(false); // Track free upgrade state
     const sandboxRef = useRef(false); // Ref for game loop access
     const showDamageNumbersRef = useRef(true); // Ref for game loop access
 
@@ -956,6 +957,7 @@ const AsteroidsGame: React.FC = () => {
 
             // Resume game after selecting upgrade
             setGameState(GameState.PLAYING);
+            setIsFreebie(false);
             return 0;
         });
     };
@@ -1327,11 +1329,21 @@ const AsteroidsGame: React.FC = () => {
                     const totalDpsMult = 1.0 + stats.multishotTier * 0.3;
                     const damagePerBullet = (BULLET_DAMAGE * totalDpsMult / bulletCount) * stats.damageMult;
 
-                    // Range scaling: +25% bullet life per range tier
-                    const bulletLife = BULLET_LIFE * (1.0 + stats.rangeTier * 0.25);
-
                     shotAngles.forEach(offset => {
-                        const a = ship.rotation + offset;
+                        // Range scaling: +25% bullet life per range tier + small random variance per bullet for "lively" feel
+                        // Variance: +/- 3 frames (approx +/- 36px)
+                        const variance = (Math.random() * 6) - 3;
+                        const bulletLife = (BULLET_LIFE * (1.0 + stats.rangeTier * 0.25)) + variance;
+
+                        // Angle Spread: Visible variation in direction (+/- 1.5 degrees) for "organic" scatter
+                        const angleFuzz = (Math.random() - 0.5) * 0.05;
+                        const a = ship.rotation + offset + angleFuzz;
+
+                        // Velocity Variance: +/- 10% speed. 
+                        // Breaks the "perfect spacing" of the stream significantly
+                        const speedVar = 0.90 + Math.random() * 0.2;
+                        const speed = BULLET_SPEED * speedVar;
+
                         bulletsRef.current.push({
                             id: Math.random().toString(),
                             type: EntityType.Bullet,
@@ -1340,8 +1352,8 @@ const AsteroidsGame: React.FC = () => {
                                 y: ship.pos.y + Math.sin(a) * ship.radius
                             },
                             vel: {
-                                x: Math.cos(a) * BULLET_SPEED + ship.vel.x * 0.2,
-                                y: Math.sin(a) * BULLET_SPEED + ship.vel.y * 0.2
+                                x: Math.cos(a) * speed + ship.vel.x * 0.2,
+                                y: Math.sin(a) * speed + ship.vel.y * 0.2
                             },
                             radius: 1.5,
                             angle: a,
@@ -1350,6 +1362,23 @@ const AsteroidsGame: React.FC = () => {
                             life: bulletLife,
                             damage: damagePerBullet,
                             bouncesRemaining: stats.ricochetTier
+                        });
+
+                        // Muzzle Flash: Tiny explosion at gun tip
+                        particlesRef.current.push({
+                            id: Math.random().toString(),
+                            type: EntityType.Particle,
+                            pos: {
+                                x: ship.pos.x + Math.cos(a) * (ship.radius + 5),
+                                y: ship.pos.y + Math.sin(a) * (ship.radius + 5)
+                            },
+                            vel: { x: ship.vel.x * 0.5, y: ship.vel.y * 0.5 }, // Follow ship slightly
+                            radius: randomRange(2, 4),
+                            life: 1.0,
+                            maxLife: 1.0, // Short flash
+                            decay: 0.2, // Fast decay
+                            color: COLORS.BULLET,
+                            variant: 'THRUST' // Reuse thrust glow style
                         });
                     });
                 }
@@ -1533,12 +1562,13 @@ const AsteroidsGame: React.FC = () => {
                         // Collection detection - ship touches orb
                         if (d < ship.radius + o.radius) {
                             o.toBeRemoved = true;
-                            // Grant free upgrade without increasing level!
-                            setUiPendingUpgrades(prev => prev + 1);
-                            prepareLevelUp(true);
-                            spawnFloatingText(ship.pos, "FREE UPGRADE!", '#ffd700', 20);
-                            spawnParticles(ship.pos, '#ffd700', 25, 5);
-                            screenShakeRef.current = 8;
+                            // Grant free upgrade - just show the menu directly, don't add to pending
+                            // The menu will show, player picks, then game resumes
+                            setIsFreebie(true);
+                            prepareLevelUp(true); // true = free upgrade (no level increment)
+                            spawnFloatingText(ship.pos, "FREE UPGRADE!", '#22c55e', 18);
+                            spawnParticles(ship.pos, '#a855f7', 15, 4);
+                            screenShakeRef.current = 5;
                             return;
                         }
 
@@ -1856,11 +1886,42 @@ const AsteroidsGame: React.FC = () => {
                     ctx.restore();
                 }
 
-                // Draw bullet
+                // "Secret Sauce": Tapered "Comet" shape with slight length jitter
+                // This creates a non-uniform "burning" feel instead of a static line
+                const speed = dist(b.vel, { x: 0, y: 0 });
+                const isFading = b.life < 15;
+                const baseAlpha = isFading ? b.life / 15 : 1.0;
+
+                ctx.save();
+                ctx.globalAlpha = baseAlpha;
                 ctx.fillStyle = b.color;
+
+                // Jitter: Wider range for more dynamic "sputtering" (60% to 130% length)
+                const jitter = 0.6 + Math.random() * 0.7;
+                const tailLen = Math.min(Math.max(b.radius * 2, speed * 2.0), 20) * jitter;
+
+                // Width Jitter: Slight pulse (95% to 105% thickness) - kept subtle
+                const widthJitter = 0.95 + Math.random() * 0.1;
+                const headRadius = b.radius * widthJitter; // Thicker head
+
+                const angle = Math.atan2(b.vel.y, b.vel.x);
+                ctx.translate(b.pos.x, b.pos.y);
+                ctx.rotate(angle);
+
                 ctx.beginPath();
-                ctx.arc(b.pos.x, b.pos.y, b.radius, 0, Math.PI * 2);
+                // Head: Full circle for a "solid" bullet core
+                ctx.arc(0, 0, headRadius, 0, Math.PI * 2);
                 ctx.fill();
+
+                // Tail: Tapered triangle trailing behind
+                // Starts slightly inside the head to merge creating a smooth "comet"
+                ctx.beginPath();
+                ctx.moveTo(0, headRadius * 0.8); // Top of tail (slightly narrower than head)
+                ctx.lineTo(-tailLen, 0);         // Point of tail
+                ctx.lineTo(0, -headRadius * 0.8);// Bottom of tail
+                ctx.fill();
+
+                ctx.restore();
             });
 
             // Orbs (no shadows - retro style + performance)
@@ -1882,50 +1943,49 @@ const AsteroidsGame: React.FC = () => {
             });
             hullOrbsRef.current.forEach(o => drawOrb(o, COLORS.HULL));
 
-            // Freebie Orbs - tri-color sparkle effect (green/red/purple = all upgrade categories!)
+            // Freebie Orbs - subtle tri-color effect (green/red/purple)
             freebieOrbsRef.current.forEach(o => {
-                if (!isOnScreen(o.pos, o.radius + 15)) return;
+                if (!isOnScreen(o.pos, o.radius + 10)) return;
 
-                const pulse = Math.sin(pulseBase + o.pulsateOffset) * 3;
+                const pulse = Math.sin(pulseBase + o.pulsateOffset) * 2;
                 const sparkleOffset = o.sparklePhase;
 
                 // Tri-color scheme (Tech/Combat/Addon)
                 const triColors = ['#22c55e', '#ef4444', '#a855f7']; // green, red, purple
-                const currentColorIdx = Math.floor(sparkleOffset / 2) % 3;
+                const currentColorIdx = Math.floor(sparkleOffset / 3) % 3;
                 const mainColor = triColors[currentColorIdx];
 
-                // Outer glow - cycles through colors
+                // Subtle outer glow
                 ctx.save();
-                ctx.globalAlpha = 0.4 + Math.sin(sparkleOffset) * 0.2;
+                ctx.globalAlpha = 0.25;
                 ctx.fillStyle = mainColor;
                 ctx.shadowColor = mainColor;
-                ctx.shadowBlur = 18;
+                ctx.shadowBlur = 10;
                 ctx.beginPath();
-                ctx.arc(o.pos.x, o.pos.y, o.radius + pulse + 5, 0, Math.PI * 2);
+                ctx.arc(o.pos.x, o.pos.y, o.radius + pulse + 3, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
 
                 // Main orb - white core
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2;
+                ctx.strokeStyle = mainColor;
+                ctx.lineWidth = 1.5;
                 ctx.beginPath();
                 ctx.arc(o.pos.x, o.pos.y, o.radius + pulse, 0, Math.PI * 2);
                 ctx.stroke();
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
                 ctx.fill();
 
-                // Tri-color sparkle points (rotating, each a different color)
-                const sparkleCount = 6; // 2 of each color
-                for (let i = 0; i < sparkleCount; i++) {
-                    const angle = sparkleOffset + (i * Math.PI * 2 / sparkleCount);
-                    const sparkleRadius = o.radius + 10 + Math.sin(sparkleOffset * 2 + i) * 4;
+                // Just 3 sparkle points (one of each color), smaller
+                for (let i = 0; i < 3; i++) {
+                    const angle = sparkleOffset * 0.5 + (i * Math.PI * 2 / 3);
+                    const sparkleRadius = o.radius + 6 + Math.sin(sparkleOffset + i) * 2;
                     const sx = o.pos.x + Math.cos(angle) * sparkleRadius;
                     const sy = o.pos.y + Math.sin(angle) * sparkleRadius;
 
-                    ctx.fillStyle = triColors[i % 3];
-                    ctx.globalAlpha = 0.7 + Math.sin(sparkleOffset * 3 + i * 2) * 0.3;
+                    ctx.fillStyle = triColors[i];
+                    ctx.globalAlpha = 0.5;
                     ctx.beginPath();
-                    ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+                    ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
                     ctx.fill();
                 }
                 ctx.globalAlpha = 1.0;
@@ -2218,6 +2278,7 @@ const AsteroidsGame: React.FC = () => {
                 showDamageNumbers={showDamageNumbers}
                 startLevel={startLevel}
                 deathReason={deathReason}
+                isFreebie={isFreebie}
                 xpBarRef={levelBarRef}
                 hullBarRef={hullBarRef}
                 shieldBarRef={shieldBarRef}
