@@ -7,7 +7,7 @@ import {
     // Ship
     SHIP_SIZE, SHIP_THRUST, SHIP_TURN_SPEED, SHIP_FRICTION, SHIP_MAX_SPEED, SHIP_BASE_HULL,
     // Combat
-    BULLET_SPEED, BULLET_LIFE, BULLET_RATE, BULLET_DAMAGE,
+    BULLET_SPEED, BULLET_LIFE, BULLET_RATE, BULLET_DAMAGE, BULLET_RADIUS,
     INVULN_DURATION_SHIELD, INVULN_DURATION_HIT, INVULN_BLINK_RATE,
     // NEW Asteroid System
     ASTEROID_SIZES, ASTEROID_BASE, SIZE_MULTIPLIERS, ASTEROID_TYPES,
@@ -26,7 +26,7 @@ import {
     DRONE_ORBIT_RADIUS, DRONE_ORBIT_VARIANCE, DRONE_ORBIT_SPEED,
     DRONE_WANDER_X, DRONE_WANDER_Y, DRONE_SPRING, DRONE_DAMPING,
     DRONE_SEPARATION_DIST, DRONE_SEPARATION_FORCE, DRONE_TELEPORT_DIST,
-    DRONE_TARGET_RANGE, DRONE_BASE_FIRE_RATE, DRONE_RECOIL, DRONE_GUN_SPREAD,
+    DRONE_TARGET_RANGE, DRONE_BASE_FIRE_RATE, DRONE_RECOIL, DRONE_GUN_SPREAD, DRONE_BASE_DAMAGE,
     // Economy
     XP_ORB_NORMAL_VALUE, XP_ORB_SUPER_VALUE, XP_ORB_RADIUS,
     HULL_ORB_VALUE, HULL_ORB_RADIUS, HULL_DROP_CHANCE,
@@ -34,8 +34,9 @@ import {
     FREEBIE_ORB_RADIUS, FREEBIE_DROP_CHANCE_BASE, FREEBIE_DROP_CHANCE_PER_SIZE,
     // Upgrades
     UPGRADE_ENGINE_MULT, UPGRADE_REGEN_PER_TIER, UPGRADE_HULL_MULT,
-    UPGRADE_FIRE_RATE_REDUCTION, UPGRADE_VELOCITY_MULT, UPGRADE_MAGNET_RANGE, UPGRADE_XP_MULT,
-    UPGRADE_DRONE_FIRE_RATE_REDUCTION, UPGRADE_DRONE_DAMAGE_MULT, UPGRADE_DRONE_RANGE_MULT,
+    UPGRADE_FIRE_RATE_SPEED_MULT, UPGRADE_DAMAGE_MULT_COMPOUND, UPGRADE_RANGE_MULT, // Pro Balance
+    UPGRADE_VELOCITY_MULT, UPGRADE_MAGNET_RANGE, UPGRADE_XP_MULT,
+    UPGRADE_DRONE_FIRE_RATE_SPEED_MULT, UPGRADE_DRONE_DAMAGE_MULT_COMPOUND, UPGRADE_DRONE_RANGE_MULT,
     SHIELD_RECHARGE_TIME, SHIELD_RADIATION_BASE_RADIUS, SHIELD_RADIATION_RADIUS_PER_TIER,
     SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER,
     MULTISHOT_SPREAD,
@@ -900,11 +901,12 @@ const AsteroidsGame: React.FC = () => {
                     shipRef.current.maxHull = SHIP_BASE_HULL * s.maxHullMult;
                     shipRef.current.hull = shipRef.current.maxHull;
                     break;
-                case 'rapidfire': s.fireRateMult = Math.max(0.1, 1.0 - (currentTier * UPGRADE_FIRE_RATE_REDUCTION)); break;
+                case 'rapidfire': s.fireRateMult = 1.0 / (1.0 + (currentTier * UPGRADE_FIRE_RATE_SPEED_MULT)); break;
                 case 'multishot': s.multishotTier = currentTier; break;
                 case 'range':
                     s.rangeTier = currentTier;
-                    s.damageMult = 1.0 + (currentTier * 0.15); // +15% damage per tier
+                    // Pro Balance: Compounding Damage (1.15 ^ tier)
+                    s.damageMult = Math.pow(UPGRADE_DAMAGE_MULT_COMPOUND, currentTier);
                     break;
                 case 'ricochet':
                     s.ricochetTier = currentTier;
@@ -926,11 +928,12 @@ const AsteroidsGame: React.FC = () => {
                     });
                     break;
                 case 'drone_rofl':
-                    // Formula: New Delay = Base Delay / (1 + (Modifier * Tier))
-                    // This means Tier 1 = 120% speed, Tier 5 = 200% speed, etc.
-                    // Allows infinite scaling without ever reaching 0 delay.
-                    s.droneFireRateMult = 1.0 / (1.0 + (currentTier * UPGRADE_DRONE_FIRE_RATE_REDUCTION));
-                    s.droneDamageMult = 1.0 + (currentTier * UPGRADE_DRONE_DAMAGE_MULT);
+                    // Drone Overclock Logic (Smart Scaling)
+                    // Fire Rate: Linear Speed (+15% per tier) -> Delay / (1 + Tier * 0.15)
+                    // Damage: Compounding (+10% per tier) -> Base * (1.10 ^ Tier)
+                    // Range: Linear (+25% per tier)
+                    s.droneFireRateMult = 1.0 / (1.0 + (currentTier * UPGRADE_DRONE_FIRE_RATE_SPEED_MULT));
+                    s.droneDamageMult = Math.pow(UPGRADE_DRONE_DAMAGE_MULT_COMPOUND, currentTier);
                     s.droneRangeMult = 1.0 + (currentTier * UPGRADE_DRONE_RANGE_MULT);
                     break;
                 case 'magnet':
@@ -1330,19 +1333,13 @@ const AsteroidsGame: React.FC = () => {
                     const damagePerBullet = (BULLET_DAMAGE * totalDpsMult / bulletCount) * stats.damageMult;
 
                     shotAngles.forEach(offset => {
-                        // Range scaling: +25% bullet life per range tier + small random variance per bullet for "lively" feel
-                        // Variance: +/- 3 frames (approx +/- 36px)
+                        // Range scaling: Uses Linear PRO BALANCE constant (+30% per tier)
                         const variance = (Math.random() * 6) - 3;
-                        const bulletLife = (BULLET_LIFE * (1.0 + stats.rangeTier * 0.25)) + variance;
+                        const bulletLife = (BULLET_LIFE * (1.0 + stats.rangeTier * UPGRADE_RANGE_MULT)) + variance;
 
-                        // Angle Spread: Visible variation in direction (+/- 1.5 degrees) for "organic" scatter
-                        const angleFuzz = (Math.random() - 0.5) * 0.05;
+                        // Angle Spread: Tiny variation in direction (+/- 0.5 degrees) for "non-robotic" fire
+                        const angleFuzz = (Math.random() - 0.5) * 0.015;
                         const a = ship.rotation + offset + angleFuzz;
-
-                        // Velocity Variance: +/- 10% speed. 
-                        // Breaks the "perfect spacing" of the stream significantly
-                        const speedVar = 0.90 + Math.random() * 0.2;
-                        const speed = BULLET_SPEED * speedVar;
 
                         bulletsRef.current.push({
                             id: Math.random().toString(),
@@ -1352,10 +1349,10 @@ const AsteroidsGame: React.FC = () => {
                                 y: ship.pos.y + Math.sin(a) * ship.radius
                             },
                             vel: {
-                                x: Math.cos(a) * speed + ship.vel.x * 0.2,
-                                y: Math.sin(a) * speed + ship.vel.y * 0.2
+                                x: Math.cos(a) * BULLET_SPEED + ship.vel.x * 0.2,
+                                y: Math.sin(a) * BULLET_SPEED + ship.vel.y * 0.2
                             },
-                            radius: 1.5,
+                            radius: BULLET_RADIUS,
                             angle: a,
                             color: COLORS.BULLET,
                             toBeRemoved: false,
@@ -1364,22 +1361,12 @@ const AsteroidsGame: React.FC = () => {
                             bouncesRemaining: stats.ricochetTier
                         });
 
-                        // Muzzle Flash: Tiny explosion at gun tip
-                        particlesRef.current.push({
-                            id: Math.random().toString(),
-                            type: EntityType.Particle,
-                            pos: {
-                                x: ship.pos.x + Math.cos(a) * (ship.radius + 5),
-                                y: ship.pos.y + Math.sin(a) * (ship.radius + 5)
-                            },
-                            vel: { x: ship.vel.x * 0.5, y: ship.vel.y * 0.5 }, // Follow ship slightly
-                            radius: randomRange(2, 4),
-                            life: 1.0,
-                            maxLife: 1.0, // Short flash
-                            decay: 0.2, // Fast decay
-                            color: COLORS.BULLET,
-                            variant: 'THRUST' // Reuse thrust glow style
-                        });
+                        // Muzzle flash: tiny spark particles for satisfying shoot feedback
+                        const muzzlePos = {
+                            x: ship.pos.x + Math.cos(a) * ship.radius,
+                            y: ship.pos.y + Math.sin(a) * ship.radius
+                        };
+                        spawnParticles(muzzlePos, '#88ccff', 2, 3);
                     });
                 }
 
@@ -1442,9 +1429,11 @@ const AsteroidsGame: React.FC = () => {
 
                         // Shooting Logic - Fire at target, bullet travels straight (no homing)
                         const droneFireRate = Math.floor(DRONE_BASE_FIRE_RATE * stats.droneFireRateMult);
+                        // Targeting Range now scales with Overclock upgrade
+                        const effectiveTargetRange = DRONE_TARGET_RANGE * stats.droneRangeMult;
                         if (t - drone.lastShot > droneFireRate) {
                             let nearest = null;
-                            let minDist = DRONE_TARGET_RANGE;
+                            let minDist = effectiveTargetRange;
                             for (const a of asteroidsRef.current) {
                                 const d = dist(drone.pos, a.pos);
                                 if (d < minDist) {
@@ -1462,9 +1451,9 @@ const AsteroidsGame: React.FC = () => {
                                 drone.vel.x -= Math.cos(angle) * DRONE_RECOIL;
                                 drone.vel.y -= Math.sin(angle) * DRONE_RECOIL;
 
-                                // Drones have base 1.5x range, scaled by Overclock, plus random 0-50% extra for natural look
-                                const baseRange = BULLET_LIFE * 1.5 * stats.droneRangeMult;
-                                const droneBulletLife = baseRange * (1 + Math.random() * 0.5);
+                                // Drone bullet range: Same as ship (1.0x), scaled by Overclock, ±20% variance for lively feel (not a buff)
+                                const baseRange = BULLET_LIFE * 1.0 * stats.droneRangeMult;
+                                const droneBulletLife = baseRange * (0.8 + Math.random() * 0.4);
 
                                 bulletsRef.current.push({
                                     id: Math.random().toString(),
@@ -1479,7 +1468,7 @@ const AsteroidsGame: React.FC = () => {
                                     color: COLORS.DRONE,
                                     toBeRemoved: false,
                                     life: droneBulletLife,
-                                    damage: BULLET_DAMAGE * stats.droneDamageMult,
+                                    damage: DRONE_BASE_DAMAGE * stats.droneDamageMult,
                                     bouncesRemaining: 0 // Drones don't get ricochet
                                 });
                                 drone.lastShot = t;
@@ -1886,39 +1875,46 @@ const AsteroidsGame: React.FC = () => {
                     ctx.restore();
                 }
 
-                // "Secret Sauce": Tapered "Comet" shape with slight length jitter
-                // This creates a non-uniform "burning" feel instead of a static line
+                // "Plasma Bolt" visual: Glowing comet with tight jitter for confident feel
                 const speed = dist(b.vel, { x: 0, y: 0 });
-                const isFading = b.life < 15;
-                const baseAlpha = isFading ? b.life / 15 : 1.0;
+                const isFading = b.life < 12;
+                const baseAlpha = isFading ? b.life / 12 : 1.0;
 
                 ctx.save();
                 ctx.globalAlpha = baseAlpha;
-                ctx.fillStyle = b.color;
 
-                // Jitter: Wider range for more dynamic "sputtering" (60% to 130% length)
-                const jitter = 0.6 + Math.random() * 0.7;
-                const tailLen = Math.min(Math.max(b.radius * 2, speed * 2.0), 20) * jitter;
+                // Tighter jitter (80-110%) = confident plasma, not sputtery
+                const jitter = 0.8 + Math.random() * 0.3;
+                // Longer tail multiplier for satisfying comet trail
+                const tailLen = Math.min(Math.max(b.radius * 3, speed * 2.8), 28) * jitter;
 
-                // Width Jitter: Slight pulse (95% to 105% thickness) - kept subtle
-                const widthJitter = 0.95 + Math.random() * 0.1;
-                const headRadius = b.radius * widthJitter; // Thicker head
+                // Subtle width pulse (97-103%) - barely noticeable but adds life
+                const widthJitter = 0.97 + Math.random() * 0.06;
+                const headRadius = b.radius * widthJitter;
 
                 const angle = Math.atan2(b.vel.y, b.vel.x);
                 ctx.translate(b.pos.x, b.pos.y);
                 ctx.rotate(angle);
 
+                // Subtle outer glow (gives "plasma" energy feel)
+                ctx.fillStyle = b.isRicochet ? b.color : '#88ccff';
+                ctx.globalAlpha = baseAlpha * 0.25;
                 ctx.beginPath();
-                // Head: Full circle for a "solid" bullet core
+                ctx.arc(0, 0, headRadius * 1.8, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Main bullet core
+                ctx.globalAlpha = baseAlpha;
+                ctx.fillStyle = b.color;
+                ctx.beginPath();
                 ctx.arc(0, 0, headRadius, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Tail: Tapered triangle trailing behind
-                // Starts slightly inside the head to merge creating a smooth "comet"
+                // Tapered comet tail - longer and more satisfying
                 ctx.beginPath();
-                ctx.moveTo(0, headRadius * 0.8); // Top of tail (slightly narrower than head)
-                ctx.lineTo(-tailLen, 0);         // Point of tail
-                ctx.lineTo(0, -headRadius * 0.8);// Bottom of tail
+                ctx.moveTo(0, headRadius * 0.75);  // Top of tail
+                ctx.lineTo(-tailLen, 0);            // Point of tail
+                ctx.lineTo(0, -headRadius * 0.75); // Bottom of tail
                 ctx.fill();
 
                 ctx.restore();
@@ -2218,21 +2214,19 @@ const AsteroidsGame: React.FC = () => {
                         ctx.shadowBlur = 0;
                     }
 
-                    // Shield Radiation Aura Visual - only when shields are active
+                    // Shield Radiation Aura Visual - unified style with asteroid auras (no dotted line)
                     if (ship.stats.shieldRadiationTier > 0 && ship.stats.shieldCharges > 0) {
                         const radiationRadius = SHIELD_RADIATION_BASE_RADIUS + (ship.stats.shieldRadiationTier * SHIELD_RADIATION_RADIUS_PER_TIER);
-                        const pulseIntensity = 0.15 + Math.sin(frameCountRef.current * 0.08) * 0.1;
+                        const pulseIntensity = 0.4 + Math.sin(frameCountRef.current * 0.08) * 0.2;
+                        const pulseWidth = 2 + Math.sin(frameCountRef.current * 0.12) * 1;
 
                         ctx.save();
                         ctx.strokeStyle = '#a855f7'; // Purple radiation
-                        ctx.lineWidth = 2 + ship.stats.shieldRadiationTier * 0.5;
+                        ctx.lineWidth = pulseWidth + ship.stats.shieldRadiationTier * 0.3;
                         ctx.globalAlpha = pulseIntensity;
-                        ctx.setLineDash([10, 15]);
-                        ctx.lineDashOffset = -frameCountRef.current * 2;
                         ctx.beginPath();
                         ctx.arc(ship.pos.x, ship.pos.y, radiationRadius, 0, Math.PI * 2);
                         ctx.stroke();
-                        ctx.setLineDash([]);
                         ctx.restore();
                     }
                 }

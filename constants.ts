@@ -28,10 +28,11 @@ export const SHIP_BASE_HULL = 100;              // Starting hull points
 // ============================================================================
 
 // Bullets
-export const BULLET_SPEED = 12;                 // Bullet velocity
-export const BULLET_LIFE = 16;                  // Frames before bullet disappears
+export const BULLET_SPEED = 9;                  // Bullet velocity (slower = more visible, satisfying lead-aim)
+export const BULLET_LIFE = 28;                  // Frames before bullet disappears (longer to compensate speed)
 export const BULLET_RATE = 20;                  // Frames between shots (lower = faster)
-export const BULLET_DAMAGE = 10;                // Damage per bullet hit
+export const BULLET_DAMAGE = 10;                // Damage per bullet hit (SHIP)
+export const BULLET_RADIUS = 2.5;               // Bullet size (larger = more visible impact)
 
 // Invulnerability (in milliseconds)
 export const INVULN_DURATION_SHIELD = 5000;     // Invuln after shield saves you (5s)
@@ -239,9 +240,10 @@ export const DRONE_SEPARATION_FORCE = 0.05;     // Push strength when too close
 // Combat
 export const DRONE_TELEPORT_DIST = 400;         // Max distance before teleport back
 export const DRONE_TARGET_RANGE = 450;          // Max targeting distance
-export const DRONE_BASE_FIRE_RATE = 30;         // Frames between shots
+export const DRONE_BASE_FIRE_RATE = 45;         // Frames between shots (nerfed from 30)
 export const DRONE_RECOIL = 1.5;                // Recoil velocity on shoot
 export const DRONE_GUN_SPREAD = 0.15;           // Angle spread for multi-gun
+export const DRONE_BASE_DAMAGE = 6;             // Base damage per drone bullet (separate from ship)
 
 // ============================================================================
 // ECONOMY - Orbs, XP, and loot
@@ -270,24 +272,29 @@ export const XP_SCALING_FACTOR = 1.20;          // XP requirement multiplier per
 // ============================================================================
 
 export const UPGRADE_ENGINE_MULT = 0.25;        // +25% speed per tier
-export const UPGRADE_REGEN_PER_TIER = 1.5;      // +1.5 HP/sec per tier (nerfed)
+export const UPGRADE_REGEN_PER_TIER = 1.5;      // +1.5 HP/sec per tier
 export const UPGRADE_HULL_MULT = 0.30;          // +30% max hull per tier
-export const UPGRADE_FIRE_RATE_REDUCTION = 0.20;// -20% fire delay per tier (min 10%)
-export const UPGRADE_VELOCITY_MULT = 0.25;      // +25% bullet speed per tier
+
+// Main Cannon Upgrades
+export const UPGRADE_FIRE_RATE_SPEED_MULT = 0.25; // +25% Fire Rate Speed (Linear)
+export const UPGRADE_DAMAGE_MULT_COMPOUND = 1.15; // +15% Damage (Compounding)
+export const UPGRADE_RANGE_MULT = 0.30;           // +30% Range (Linear)
+
+export const UPGRADE_VELOCITY_MULT = 0.25;      // +25% bullet speed per tier (Unused currently)
 export const UPGRADE_MAGNET_RANGE = 60;         // +60px pickup range per tier
 export const UPGRADE_XP_MULT = 0.25;            // +25% XP value per tier
 
-// Drone Overclock specific
-export const UPGRADE_DRONE_FIRE_RATE_REDUCTION = 0.12; // -12% fire delay per tier (nerfed from 20%)
-export const UPGRADE_DRONE_DAMAGE_MULT = 0.10;  // +10% drone damage per tier (nerfed from 15%)
-export const UPGRADE_DRONE_RANGE_MULT = 0.20;   // +20% drone bullet range per tier (nerfed from 35%)
+// Drone Overclock
+export const UPGRADE_DRONE_FIRE_RATE_SPEED_MULT = 0.15; // +15% Fire Rate Speed (Linear)
+export const UPGRADE_DRONE_DAMAGE_MULT_COMPOUND = 1.10; // +10% Damage (Compounding)
+export const UPGRADE_DRONE_RANGE_MULT = 0.25;           // +25% Range (Linear)
 
 // Shield Mechanics
 export const SHIELD_RECHARGE_TIME = 30000;      // 30 seconds per shield charge
-export const SHIELD_RADIATION_BASE_RADIUS = 175; // Base aura radius in pixels
-export const SHIELD_RADIATION_RADIUS_PER_TIER = 15; // +15px per tier (nerfed from 30)
+export const SHIELD_RADIATION_BASE_RADIUS = 120; // Base aura radius (nerfed from 175)
+export const SHIELD_RADIATION_RADIUS_PER_TIER = 10; // +10px per tier (nerfed from 15)
 export const SHIELD_RADIATION_BASE_DPS = 0;     // Base damage per second
-export const SHIELD_RADIATION_DPS_PER_TIER = 4; // +4 DPS per tier (nerfed from 7)
+export const SHIELD_RADIATION_DPS_PER_TIER = 3; // +3 DPS per tier (nerfed from 4)
 
 // Multishot spread angles
 export const MULTISHOT_SPREAD = {
@@ -381,7 +388,7 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'rapidfire',
         name: 'Hyper-Cooling',
-        description: (t) => `Fire Rate +20% (Tier ${t})`,
+        description: (t) => `Fire Rate +${Math.round(t * UPGRADE_FIRE_RATE_SPEED_MULT * 100)}% (Tier ${t})`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
@@ -395,7 +402,7 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'range',
         name: 'Magnetic Rails',
-        description: (t) => `Range +25%, Damage +15% (Tier ${t})`,
+        description: (t) => `Range +${Math.round(t * UPGRADE_RANGE_MULT * 100)}%, Damage +${Math.round((Math.pow(UPGRADE_DAMAGE_MULT_COMPOUND, t) - 1) * 100)}% (Tier ${t})`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
@@ -419,7 +426,7 @@ export const UPGRADES: UpgradeDef[] = [
         id: 'drone_rofl',
         parentId: 'drone',
         name: 'Drone: Overclock',
-        description: (t) => `Drone Fire +20%, Damage +15%, Range +25% (Tier ${t})`,
+        description: (t) => `Fire Rate +${Math.round(t * UPGRADE_DRONE_FIRE_RATE_SPEED_MULT * 100)}%, Damage +${Math.round((Math.pow(UPGRADE_DRONE_DAMAGE_MULT_COMPOUND, t) - 1) * 100)}%, Range +${Math.round(t * UPGRADE_DRONE_RANGE_MULT * 100)}% (Tier ${t})`,
         category: UpgradeCategory.ADDONS,
         color: 'text-purple-200 border-purple-300 shadow-purple-300/30'
     },

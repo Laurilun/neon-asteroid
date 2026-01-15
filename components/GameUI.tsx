@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState, Ship, UpgradeCategory, UpgradeDef } from '../types';
-import { UPGRADES, SHIELD_RECHARGE_TIME, ORB_MAGNET_RANGE_BASE, SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER, BULLET_DAMAGE, BULLET_LIFE, BULLET_RATE } from '../constants';
+import { UPGRADES, SHIELD_RECHARGE_TIME, ORB_MAGNET_RANGE_BASE, SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER, SHIELD_RADIATION_BASE_RADIUS, SHIELD_RADIATION_RADIUS_PER_TIER, BULLET_DAMAGE, BULLET_LIFE, BULLET_RATE } from '../constants';
 
 interface GameUIProps {
     gameState: GameState;
@@ -400,10 +400,16 @@ const GameUI: React.FC<GameUIProps> = ({
                                                 <span className="text-purple-400 font-bold">{ship.stats.shieldCharges}/{ship.stats.maxShieldCharges}</span>
                                             </div>
                                             {ship.stats.shieldRadiationTier > 0 && (
-                                                <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
-                                                    <span className="text-gray-500">RADIATION</span>
-                                                    <span className="text-purple-400 font-bold">{SHIELD_RADIATION_BASE_DPS + ship.stats.shieldRadiationTier * SHIELD_RADIATION_DPS_PER_TIER} DPS</span>
-                                                </div>
+                                                <>
+                                                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                        <span className="text-gray-500">RADIATION</span>
+                                                        <span className="text-purple-400 font-bold">{SHIELD_RADIATION_BASE_DPS + ship.stats.shieldRadiationTier * SHIELD_RADIATION_DPS_PER_TIER} DPS</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
+                                                        <span className="text-gray-500">AURA RADIUS</span>
+                                                        <span className="text-purple-400 font-bold">{SHIELD_RADIATION_BASE_RADIUS + ship.stats.shieldRadiationTier * SHIELD_RADIATION_RADIUS_PER_TIER}px</span>
+                                                    </div>
+                                                </>
                                             )}
                                         </div>
                                     )}
