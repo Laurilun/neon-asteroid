@@ -58,21 +58,22 @@ export const ASTEROID_SIZES = {
 // --- Base Values (before multipliers) ---
 export const ASTEROID_BASE = {
     RADIUS: 18,          // Base radius in pixels
-    HP: 25,              // Base hit points
+    HP: 20,              // Base hit points (was 25 - faster kills!)
     SPEED: 0.8,          // Base movement speed
-    DAMAGE: 25,          // Base collision damage (increased for difficulty!)
+    DAMAGE: 15,          // Base collision damage (was 25 - more forgiving)
     ROTATION: 0.015,     // Base rotation speed (radians/frame)
     VERTICES: 8,         // Base polygon vertices
     XP_VALUE: 30         // Base XP orb value
 };
 
 // --- Size Multipliers (applied to base values) ---
-// Designed so larger = tankier but not necessarily deadlier
+// REBALANCED: Lower HP for faster kills, lower damage for forgiveness
+// threat = base threat value for director system
 export const SIZE_MULTIPLIERS = {
-    [ASTEROID_SIZES.SMALL]: { radius: 1.0, hp: 1.0, speed: 1.1, damage: 0.6, vertices: 0, xp: 1.0 },
-    [ASTEROID_SIZES.MEDIUM]: { radius: 1.9, hp: 2.5, speed: 1.0, damage: 1.0, vertices: 2, xp: 1.5 },
-    [ASTEROID_SIZES.LARGE]: { radius: 3.5, hp: 6.0, speed: 0.9, damage: 1.5, vertices: 4, xp: 3.0 },
-    [ASTEROID_SIZES.XLARGE]: { radius: 5.5, hp: 15.0, speed: 0.75, damage: 2.5, vertices: 6, xp: 6.0 }
+    [ASTEROID_SIZES.SMALL]: { radius: 1.0, hp: 0.8, speed: 1.1, damage: 0.5, vertices: 0, xp: 1.0, threat: 1 },
+    [ASTEROID_SIZES.MEDIUM]: { radius: 1.9, hp: 2.0, speed: 1.0, damage: 0.8, vertices: 2, xp: 1.5, threat: 2 },
+    [ASTEROID_SIZES.LARGE]: { radius: 3.5, hp: 4.5, speed: 0.9, damage: 1.2, vertices: 4, xp: 3.0, threat: 4 },
+    [ASTEROID_SIZES.XLARGE]: { radius: 5.5, hp: 10.0, speed: 0.75, damage: 2.0, vertices: 6, xp: 6.0, threat: 8 }
 };
 
 // --- Type Definitions ---
@@ -84,6 +85,7 @@ export interface AsteroidTypeConfig {
     hpMult: number;          // HP multiplier
     damageMult: number;      // Collision damage multiplier
     knockbackMult?: number;  // Knockback multiplier (Iron = massive pushback)
+    threatMult: number;      // Threat value multiplier for director system
     splits: boolean;         // Does this type split when destroyed?
     color: string;           // Render color
     glowColor?: string;      // Optional glow effect color
@@ -99,29 +101,32 @@ export interface AsteroidTypeConfig {
 export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
     REGULAR: {
         speedMult: 1.0,
-        hpMult: 1.0,
+        hpMult: 0.7,              // FAST KILLS - melt faster for power fantasy!
         damageMult: 1.0,
+        threatMult: 1.0,          // Base threat level
         splits: true,
         color: '#9ca3af'
     },
     MOLTEN: {
-        speedMult: 2.0,           // Fast and aggressive
+        speedMult: 1.3,           // Slower but CHASES (was 2.0)
         hpMult: 2.5,              // Tanky
-        damageMult: 5.0,          // DEADLY damage
+        damageMult: 3.0,          // Deadly but survivable (was 5.0)
+        threatMult: 2.0,          // HIGH threat - dangerous aura!
         splits: false,
         hasAura: true,            // Burn aura!
-        auraRange: 40,            // Small burn ring (scales with size)
+        auraRange: 50,            // Slightly larger burn ring (was 40)
         auraSizeScale: 0.3,       // +30% range per size tier
-        auraDPS: 50,              // VERY HIGH burn damage (brief contact = punishing)
+        auraDPS: 40,              // Still punishing (was 50)
         auraSlowFactor: 1.0,      // No slow effect
         color: '#ef4444',
         glowColor: '#f97316'
     },
     IRON: {
-        speedMult: 3.5,           // Slightly slower (was 5.0)
+        speedMult: 2.8,           // Fast but reactable (was 3.5)
         hpMult: 0.8,              // Low HP - squishy
-        damageMult: 1.5,          // Moderate damage - danger is knockback!
-        knockbackMult: 4.0,       // MASSIVE knockback
+        damageMult: 1.0,          // Low damage - knockback is the punishment (was 1.5)
+        knockbackMult: 4.0,       // MASSIVE knockback - KEPT for character!
+        threatMult: 1.5,          // Moderate threat - disruptor
         splits: false,
         homingBurst: true,        // Launches directly at player
         color: '#7c2d12',
@@ -129,22 +134,23 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
     },
     FROZEN: {
         speedMult: 0.4,           // Slow moving
-        hpMult: 5.0,              // Very tanky
+        hpMult: 3.5,              // Tanky not sponge (was 5.0)
         damageMult: 1.0,          // Normal contact damage
+        threatMult: 1.8,          // High threat - zoning control
         splits: false,
         hasAura: true,
         auraRange: 120,           // Base aura (scales with size)
         auraSizeScale: 0.25,      // +25% range per size tier
-        auraSlowFactor: 0.4,      // Player moves at 40% speed in aura
-        auraDPS: 15,              // Increased (was 12)
+        auraSlowFactor: 0.5,      // Slightly less punishing (was 0.4)
+        auraDPS: 15,
         color: '#06b6d4',
         glowColor: '#22d3ee'
     }
 };
 
 // --- Splitting Mechanics ---
-export const ASTEROID_SPLIT_COUNT_NORMAL = 2;   // Medium/Large split into 2
-export const ASTEROID_SPLIT_COUNT_XLARGE = 3;   // XLARGE splits into 3!
+export const ASTEROID_SPLIT_COUNT_NORMAL = 2;   // Less explosion (was 3)
+export const ASTEROID_SPLIT_COUNT_XLARGE = 3;   // XLARGE keeps 3 for boss feel!
 export const ASTEROID_SPLIT_MIN_SIZE = ASTEROID_SIZES.MEDIUM; // Only medium+ split
 export const ASTEROID_SPLIT_SEPARATION_SPEED = 0.4;
 export const ASTEROID_SPLIT_OFFSET_RATIO = 0.5;
@@ -155,14 +161,17 @@ export const ASTEROID_SPLIT_OFFSET_RATIO = 0.5;
 // Designed to scale smoothly from level 1 to 100+ without hard caps
 
 // --- Spawn Timing ---
-export const SPAWN_INTERVAL_BASE = 90;       // Base frames between spawns
-export const SPAWN_INTERVAL_MIN = 20;        // Minimum spawn interval (caps speed)
-export const SPAWN_INTERVAL_DECAY = 0.97;    // Multiply interval by this each level
+export const SPAWN_INTERVAL_BASE = 60;        // Faster initial spawns (was 90)
+export const SPAWN_INTERVAL_MIN = 15;         // Keeps pressure late (was 20)
+export const SPAWN_INTERVAL_DECAY = 0.96;     // Slower acceleration (was 0.97)
 
-// --- Screen Density ---
-export const TARGET_ASTEROID_BASE = 4;       // Min asteroids at level 1
-export const TARGET_ASTEROID_PER_LEVEL = 0.8;// +0.8 asteroids per level
-export const TARGET_ASTEROID_MAX = 30;       // Soft cap (can exceed slightly)
+// --- Screen Density: THREAT-WEIGHTED SYSTEM ---
+// Instead of counting asteroids, we count "threat budget"
+// Threat = SIZE_MULTIPLIERS.threat × ASTEROID_TYPES.threatMult
+export const THREAT_BUDGET_BASE = 15;         // Starting threat budget
+export const THREAT_BUDGET_PER_LEVEL = 1.5;   // +1.5 threat per level
+export const THREAT_BUDGET_MAX = 60;          // Cap for very late game
+export const TARGET_ASTEROID_MIN = 6;         // Minimum asteroid COUNT (never empty)
 
 // --- Level Scaling ---
 export const LEVEL_HP_SCALING = 0.08;        // +8% HP per level (compounds)
@@ -170,28 +179,29 @@ export const LEVEL_SPEED_SCALING = 0.02;     // +2% speed per level (caps at +10
 export const LEVEL_SPEED_CAP = 2.0;          // Max speed multiplier from levels
 
 // --- Type Spawn Gates (level required for each type/size combo) ---
-// Uses formula: level >= GATE[type][size] to determine if can spawn
-// EARLY danger: specials appear quickly!
+// REBALANCED: Slightly later gates for breathing room (Vampire Survivors style)
 export const SPAWN_GATES = {
-    REGULAR: { SMALL: 1, MEDIUM: 1, LARGE: 2, XLARGE: 8 },
-    MOLTEN: { SMALL: 2, MEDIUM: 4, LARGE: 6, XLARGE: 12 },
-    IRON: { SMALL: 3, MEDIUM: 999, LARGE: 999, XLARGE: 999 }, // IRON = SMALL ONLY
-    FROZEN: { SMALL: 4, MEDIUM: 6, LARGE: 9, XLARGE: 18 }
+    REGULAR: { SMALL: 1, MEDIUM: 1, LARGE: 3, XLARGE: 10 },
+    MOLTEN: { SMALL: 3, MEDIUM: 5, LARGE: 8, XLARGE: 14 },
+    IRON: { SMALL: 4, MEDIUM: 10, LARGE: 999, XLARGE: 999 },
+    FROZEN: { SMALL: 5, MEDIUM: 7, LARGE: 10, XLARGE: 20 }
 };
 
-// --- Iron Shotgun Burst (Iron ALWAYS spawns as burst of pebbles) ---
-export const IRON_BURST_COUNT_MIN = 2;       // Min pebbles in shotgun
-export const IRON_BURST_COUNT_MAX = 4;       // Max pebbles (was 5, favor smaller bursts)
-export const IRON_BURST_SPEED_MULT = 1.8;    // Fast but not crazy (was 2.0)
-export const IRON_BURST_SPREAD = 0.2;        // More accurate aimed at player (was 0.4)
+// --- Iron Shotgun Burst (Iron ALWAYS spawns as burst) ---
+// Count scales with level in spawnIronBurst function
+export const IRON_BURST_COUNT_BASE = 2;       // Base count at level 1
+export const IRON_BURST_COUNT_PER_LEVEL = 0.2; // +0.2 per level (so L10 = 4, L20 = 6)
+export const IRON_BURST_COUNT_MAX = 7;        // Cap for very high levels
+export const IRON_BURST_SPEED_MULT = 1.8;     // Fast and dangerous
+export const IRON_BURST_SPREAD = 0.25;        // Tight spread aimed at player
 
 // --- Type Spawn Weights (relative chance to spawn each type) ---
 // Higher = more common. Weights scale with level for variety.
 export const TYPE_SPAWN_WEIGHTS = {
-    REGULAR: { base: 100, perLevel: -2, min: 30 }, // Decreases over time
-    MOLTEN: { base: 0, perLevel: 3, max: 40 }, // Increases to 40
-    IRON: { base: 0, perLevel: 1, max: 12 }, // Low frequency - bursts are impactful
-    FROZEN: { base: 0, perLevel: 1, max: 15 }  // Rare but increases
+    REGULAR: { base: 100, perLevel: -1, min: 50 },   // Stays very high
+    MOLTEN: { base: 0, perLevel: 5, max: 40 },       // Good
+    IRON: { base: 0, perLevel: 1, max: 12 },         // Rare
+    FROZEN: { base: 0, perLevel: 4, max: 30 }        // Good
 };
 
 // --- Size Spawn Weights (relative chance for each size) ---
@@ -208,14 +218,17 @@ export const FREEBIE_ORB_RADIUS = 12;        // Larger than XP orbs
 export const FREEBIE_DROP_CHANCE_BASE = 0.05; // 5% base chance (1/20) from specials
 export const FREEBIE_DROP_CHANCE_PER_SIZE = 0.00; // No size scaling - flat 5%
 
-// --- Swarm Burst Spawning ---
-// Occasional burst spawns of multiple asteroids from one direction
-export const SWARM_BURST_CHANCE = 0.15;      // 15% chance per spawn to be a burst
-export const SWARM_BURST_COUNT_MIN = 3;      // Min asteroids in burst
-export const SWARM_BURST_COUNT_MAX = 5;      // Max asteroids in burst
-export const SWARM_BURST_SPEED_MULT = 1.5;   // Burst asteroids move 1.5x faster
-export const SWARM_BURST_SPREAD = 0.25;      // Radians spread (tighter = more dangerous)
-export const SWARM_BURST_DELAY = 3;          // Frames between each asteroid in burst
+// --- Swarm Burst Spawning (clouds of small asteroids) ---
+// REBALANCED: More frequent, bigger swarms for constant engagement
+export const SWARM_BURST_CHANCE = 0.40;           // More swarms! (was 0.30)
+export const SWARM_BURST_COUNT_BASE = 4;          // Bigger starting clusters (was 3)
+export const SWARM_BURST_COUNT_PER_LEVEL = 0.3;   // Faster growth (was 0.25)
+export const SWARM_BURST_COUNT_MAX = 10;          // Bigger late game (was 8)
+export const SWARM_BURST_SPEED_BASE = 1.2;        // Base speed multiplier
+export const SWARM_BURST_SPEED_PER_LEVEL = 0.03;  // Gets faster each level
+export const SWARM_BURST_SPEED_MAX = 2.0;         // Cap speed at 2x
+export const SWARM_BURST_SPREAD = 0.8;            // Wider spread (was 0.6)
+export const SWARM_BURST_MEDIUM_CHANCE_PER_LEVEL = 0.015; // 1.5% per level for medium
 // ============================================================================
 // DRONES - Autonomous companion orbiters
 // ============================================================================
@@ -250,22 +263,22 @@ export const DRONE_BASE_DAMAGE = 6;             // Base damage per drone bullet 
 // ============================================================================
 
 // XP Orbs
-export const XP_ORB_NORMAL_VALUE = 40;          // XP from normal orb
-export const XP_ORB_SUPER_VALUE = 400;          // XP from super orb (large asteroids)
+export const XP_ORB_NORMAL_VALUE = 60;          // More XP per kill! (was 50)
+export const XP_ORB_SUPER_VALUE = 350;          // Rebalanced (was 500)
 export const XP_ORB_RADIUS = { NORMAL: 4, SUPER: 8 };
 
 // Hull Orbs
 export const HULL_ORB_VALUE = 25;               // HP restored
 export const HULL_ORB_RADIUS = 8;
-export const HULL_DROP_CHANCE = 0.02;           // 2% chance from any asteroid
+export const HULL_DROP_CHANCE = 0.025;          // Slightly higher (was 0.02)
 
 // Collection
 export const ORB_MAGNET_RANGE_BASE = 60;        // Base pickup range
 export const ORB_DRIFT_SPEED = 0.5;             // Random drift velocity
 
-// Leveling
-export const XP_BASE_REQ = 200;                 // XP needed for level 2
-export const XP_SCALING_FACTOR = 1.20;          // XP requirement multiplier per level
+// Leveling - REBALANCED for faster, more rewarding progression
+export const XP_BASE_REQ = 400;                 // Slower first level (was 150) - approx 7-8 small orbs
+export const XP_SCALING_FACTOR = 1.08;          // Flatter curve for late game (was 1.12)
 
 // ============================================================================
 // UPGRADES - Stat scaling per tier

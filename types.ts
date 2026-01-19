@@ -98,7 +98,7 @@ export interface Particle extends Entity {
   life: number;
   maxLife: number;
   decay: number;
-  variant?: 'THRUST' | 'DEBRIS' | 'SHOCKWAVE';
+  variant?: 'THRUST' | 'DEBRIS' | 'SHOCKWAVE' | 'SHELL';
 }
 
 export interface ExpOrb extends Entity {

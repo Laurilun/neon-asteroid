@@ -14,14 +14,15 @@ import {
     ASTEROID_SPLIT_COUNT_NORMAL, ASTEROID_SPLIT_COUNT_XLARGE, ASTEROID_SPLIT_MIN_SIZE, ASTEROID_SPLIT_SEPARATION_SPEED, ASTEROID_SPLIT_OFFSET_RATIO,
     // NEW Spawning System
     SPAWN_INTERVAL_BASE, SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_DECAY,
-    TARGET_ASTEROID_BASE, TARGET_ASTEROID_PER_LEVEL, TARGET_ASTEROID_MAX,
+    THREAT_BUDGET_BASE, THREAT_BUDGET_PER_LEVEL, THREAT_BUDGET_MAX, TARGET_ASTEROID_MIN,
     LEVEL_HP_SCALING, LEVEL_SPEED_SCALING, LEVEL_SPEED_CAP,
     SPAWN_GATES, TYPE_SPAWN_WEIGHTS, SIZE_SPAWN_WEIGHTS,
     // Swarm Bursts
-    SWARM_BURST_CHANCE, SWARM_BURST_COUNT_MIN, SWARM_BURST_COUNT_MAX,
-    SWARM_BURST_SPEED_MULT, SWARM_BURST_SPREAD,
+    SWARM_BURST_CHANCE, SWARM_BURST_COUNT_BASE, SWARM_BURST_COUNT_PER_LEVEL, SWARM_BURST_COUNT_MAX,
+    SWARM_BURST_SPEED_BASE, SWARM_BURST_SPEED_PER_LEVEL, SWARM_BURST_SPEED_MAX, SWARM_BURST_SPREAD,
+    SWARM_BURST_MEDIUM_CHANCE_PER_LEVEL,
     // Iron Shotgun Burst
-    IRON_BURST_COUNT_MIN, IRON_BURST_COUNT_MAX, IRON_BURST_SPEED_MULT, IRON_BURST_SPREAD,
+    IRON_BURST_COUNT_BASE, IRON_BURST_COUNT_PER_LEVEL, IRON_BURST_COUNT_MAX, IRON_BURST_SPEED_MULT, IRON_BURST_SPREAD,
     // Drones
     DRONE_ORBIT_RADIUS, DRONE_ORBIT_VARIANCE, DRONE_ORBIT_SPEED,
     DRONE_WANDER_X, DRONE_WANDER_Y, DRONE_SPRING, DRONE_DAMPING,
@@ -114,13 +115,16 @@ const AsteroidsGame: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>(GameState.MENU);
 
     // Game Logic Refs (Decoupled from React State for Perf)
-    const scoreRef = useRef(0);
+    const xpRef = useRef(0); // XP (Leveling) - ONLY from Orbs (Renamed from scoreRef to avoid confusion)
+    const pointsRef = useRef(0); // Score (Display/Leaderboard) - From kills & orbs
     const levelRef = useRef(1);
     const xpTargetRef = useRef(XP_BASE_REQ);
     const activeUpgradesRef = useRef<Record<string, number>>({});
 
     // UI State (Synced occasionally or on events)
-    const [uiScore, setUiScore] = useState(0);
+    const [uiScore, setUiScore] = useState(0); // Now represents POINTS
+    const [uiXp, setUiXp] = useState(0);       // New state for XP bar
+    const [uiXpTarget, setUiXpTarget] = useState(XP_BASE_REQ); // New state for XP target
     const [uiLevel, setUiLevel] = useState(1);
     const [uiPendingUpgrades, setUiPendingUpgrades] = useState(0);
     const [uiOfferedUpgrades, setUiOfferedUpgrades] = useState<UpgradeDef[]>([]);
@@ -157,6 +161,16 @@ const AsteroidsGame: React.FC = () => {
     const moltenTimerRef = useRef<number>(0);
     const frozenTimerRef = useRef<number>(0);
     const ironTimerRef = useRef<number>(0);
+
+    // Staggered spawn queue for "pew pew pew" cloud effect
+    interface PendingSpawn {
+        spawnAt: number; // Frame to spawn at
+        pos: Vector;
+        vel: Vector;
+        sizeCat: 1 | 2;
+        typeName: AsteroidTypeName;
+    }
+    const pendingSpawnsRef = useRef<PendingSpawn[]>([]);
 
     // HUD Refs (For XP Bar, we can pass a ref to GameUI if we wanted direct DOM manip, but state is fine for low freq updates)
     const levelBarRef = useRef<HTMLDivElement>(null);
@@ -220,7 +234,8 @@ const AsteroidsGame: React.FC = () => {
         dronesRef.current = [];
         floatingTextsRef.current = [];
 
-        scoreRef.current = 0;
+        xpRef.current = 0;
+        pointsRef.current = 0;
         activeUpgradesRef.current = {};
 
         setUiScore(0);
@@ -501,65 +516,48 @@ const AsteroidsGame: React.FC = () => {
         });
     };
 
-    // Spawn a burst of asteroids from the same position - dangerous wave!
+    // Spawn a burst of small asteroids - STAGGERED for "pew pew pew" cloud effect
     const spawnBurst = (cw: number, ch: number, currentLevel: number) => {
-        const count = SWARM_BURST_COUNT_MIN + Math.floor(Math.random() * (SWARM_BURST_COUNT_MAX - SWARM_BURST_COUNT_MIN + 1));
+        const scaledCount = SWARM_BURST_COUNT_BASE + Math.floor(currentLevel * SWARM_BURST_COUNT_PER_LEVEL);
+        const count = Math.min(scaledCount, SWARM_BURST_COUNT_MAX);
         const spawnPos = getSpawnPosition(cw, ch, 120);
-        const baseAngle = getTargetAngle(spawnPos, 0); // Aim directly at player
+        const baseAngle = getTargetAngle(spawnPos, 0);
+        const currentFrame = frameCountRef.current;
+        const STAGGER_FRAMES = 5; // Spawn one asteroid every 5 frames
 
         for (let i = 0; i < count; i++) {
-            // Select type and size for this asteroid
-            const typeName = selectAsteroidType(currentLevel);
-            const sizeCat = selectAsteroidSize(currentLevel, typeName);
-            const entityType = getEntityType(typeName);
-            const props = calculateAsteroidProps(typeName, sizeCat, currentLevel);
+            const mediumChance = Math.min(currentLevel * SWARM_BURST_MEDIUM_CHANCE_PER_LEVEL, 0.25);
+            const sizeCat = (Math.random() < mediumChance ? 2 : 1) as 1 | 2;
+            const props = calculateAsteroidProps('REGULAR', sizeCat, currentLevel);
 
-            // Add spread and apply burst speed multiplier
+            // Speed scales with level
+            const scaledSpeedMult = Math.min(SWARM_BURST_SPEED_BASE + currentLevel * SWARM_BURST_SPEED_PER_LEVEL, SWARM_BURST_SPEED_MAX);
             const angle = baseAngle + (Math.random() - 0.5) * SWARM_BURST_SPREAD * 2;
-            const burstSpeed = props.speed * SWARM_BURST_SPEED_MULT;
-            const vel = {
-                x: Math.cos(angle) * burstSpeed,
-                y: Math.sin(angle) * burstSpeed
-            };
+            const burstSpeed = props.speed * scaledSpeedMult;
 
-            // Slight position offset so they don't stack perfectly
-            const offsetDist = i * 15;
-            const offsetAngle = angle + Math.PI; // Behind the spawn point
-            const pos = {
-                x: spawnPos.x + Math.cos(offsetAngle) * offsetDist,
-                y: spawnPos.y + Math.sin(offsetAngle) * offsetDist
-            };
-
-            asteroidsRef.current.push({
-                id: Math.random().toString(36).substr(2, 9),
-                type: entityType,
-                pos: pos,
-                vel: vel,
-                radius: props.radius,
-                angle: 0,
-                color: props.color,
-                toBeRemoved: false,
-                vertices: generatePolygon(props.radius, props.vertices, sizeCat * 3),
-                hp: props.hp,
-                maxHp: props.hp,
-                sizeCategory: sizeCat,
-                hitFlash: 0,
-                rotation: Math.random() * Math.PI * 2,
-                rotationSpeed: randomRange(-props.rotation, props.rotation),
-                pulsateOffset: Math.random() * Math.PI * 2
+            // Queue for staggered spawn
+            pendingSpawnsRef.current.push({
+                spawnAt: currentFrame + (i * STAGGER_FRAMES),
+                pos: { ...spawnPos }, // All from same point
+                vel: { x: Math.cos(angle) * burstSpeed, y: Math.sin(angle) * burstSpeed },
+                sizeCat: sizeCat,
+                typeName: 'REGULAR'
             });
         }
     };
 
-    // Spawn Iron shotgun burst - 4-6 small fast pebbles!
+    // Spawn Iron shotgun burst - scales with level for progressive difficulty
     const spawnIronBurst = (cw: number, ch: number, currentLevel: number) => {
-        const count = IRON_BURST_COUNT_MIN + Math.floor(Math.random() * (IRON_BURST_COUNT_MAX - IRON_BURST_COUNT_MIN + 1));
+        // Count scales with level: base 2, +0.2 per level, max 7
+        const scaledCount = IRON_BURST_COUNT_BASE + Math.floor(currentLevel * IRON_BURST_COUNT_PER_LEVEL);
+        const count = Math.min(scaledCount, IRON_BURST_COUNT_MAX);
         const spawnPos = getSpawnPosition(cw, ch, 120);
-        const baseAngle = getTargetAngle(spawnPos, 0.1); // Slight randomness in aim
+        const baseAngle = getTargetAngle(spawnPos, 0.1);
 
         for (let i = 0; i < count; i++) {
-            // Iron is ALWAYS small (like pebbles/buckshot)
-            const sizeCat = 1 as const;
+            // Per-asteroid medium chance scales with level (2% per level, max 30%)
+            const mediumChance = Math.min(0.02 * currentLevel, 0.30);
+            const sizeCat = (Math.random() < mediumChance ? 2 : 1) as 1 | 2;
             const props = calculateAsteroidProps('IRON', sizeCat, currentLevel);
 
             // Shotgun spread and very fast
@@ -664,6 +662,44 @@ const AsteroidsGame: React.FC = () => {
         }
     };
 
+    // Plasma cartridge - spawn near ship tip, tumbles as it ejects
+    const spawnPlasmaExhaust = (shipPos: Vector, shipAngle: number, shipVel: Vector) => {
+        // Pick random side (left or right)
+        const side = Math.random() > 0.5 ? 1 : -1;
+
+        // Spawn near the tip: more forward + small side offset
+        const forwardOffset = 12; // Further toward muzzle
+        const sideOffset = 4;     // Closer to center
+        const sideAngle = shipAngle + (Math.PI / 2) * side;
+        const spawnX = shipPos.x + Math.cos(shipAngle) * forwardOffset + Math.cos(sideAngle) * sideOffset;
+        const spawnY = shipPos.y + Math.sin(shipAngle) * forwardOffset + Math.sin(sideAngle) * sideOffset;
+
+        // Vent outward + slightly backward
+        const ventAngle = sideAngle + (Math.PI * 0.15) * side;
+        const ventSpeed = 0.8 + Math.random() * 0.3;
+
+        // Random spin direction for tumble
+        const spinDir = Math.random() > 0.5 ? 1 : -1;
+
+        particlesRef.current.push({
+            id: Math.random().toString(),
+            type: EntityType.Particle,
+            pos: { x: spawnX, y: spawnY },
+            vel: {
+                x: Math.cos(ventAngle) * ventSpeed + shipVel.x * 0.1,
+                y: Math.sin(ventAngle) * ventSpeed + shipVel.y * 0.1
+            },
+            radius: 2,
+            angle: shipAngle + spinDir * 0.5,
+            color: '#66ddff',
+            toBeRemoved: false,
+            life: 1.0,
+            maxLife: 1.0,
+            decay: 0.025, // Slower - lingers longer
+            variant: 'SHELL'
+        });
+    };
+
     const spawnFloatingText = (pos: Vector, text: string, color: string, size: number = 14) => {
         floatingTextsRef.current.push({
             id: Math.random().toString(),
@@ -729,21 +765,10 @@ const AsteroidsGame: React.FC = () => {
         if (a.toBeRemoved) return;
         a.toBeRemoved = true;
 
-        // Score calculation based on size and type
-        const isSpecial = a.type !== EntityType.Asteroid;
-        let scoreValue = 0;
-        if (isSpecial) {
-            // Special asteroids (Molten, Iron, Frozen): 100 base
-            scoreValue = 100;
-        } else {
-            // Normal asteroids: 10/25/50 for small/medium/large
-            scoreValue = a.sizeCategory === 3 ? 50 : a.sizeCategory === 2 ? 25 : 10;
-        }
-        scoreRef.current += scoreValue;
-        setUiScore(scoreRef.current);
+        // Legacy scoring block removed
 
-        // Shake
-        screenShakeRef.current = a.sizeCategory * 2;
+        // Re-declare isSpecial for use in loot/scoring below
+        const isSpecial = a.type !== EntityType.Asteroid;
 
         // Visuals
         spawnParticles(a.pos, a.color, 1, 0, 'SHOCKWAVE');
@@ -794,6 +819,9 @@ const AsteroidsGame: React.FC = () => {
         // Loot
         if (Math.random() < HULL_DROP_CHANCE) spawnHullOrb(a.pos);
 
+        // Loot
+        if (Math.random() < HULL_DROP_CHANCE) spawnHullOrb(a.pos);
+
         // XP Orbs - bigger special asteroids drop more super XP
         if (isSpecial) {
             // Size-based super XP count: small=1-2, medium=2-3, large=3-4, xlarge=4-5
@@ -803,14 +831,26 @@ const AsteroidsGame: React.FC = () => {
                 spawnExpOrb({ x: a.pos.x + randomRange(-15, 15), y: a.pos.y + randomRange(-15, 15) }, 'SUPER');
             }
 
-            // Freebie Orb chance - rare drop from specials (2% + 2% per size)
-            const freebieChance = FREEBIE_DROP_CHANCE_BASE + (a.sizeCategory * FREEBIE_DROP_CHANCE_PER_SIZE);
+            // Freebie Orb chance - rare drop from specials
+            // NERF: Iron has 1/5th chance since they spawn in bursts of 5-7
+            let freebieChance = FREEBIE_DROP_CHANCE_BASE + (a.sizeCategory * FREEBIE_DROP_CHANCE_PER_SIZE);
+            if (a.type === EntityType.IronAsteroid) {
+                freebieChance *= 0.2; // Nerf for burst spawns - effectively per-wave chance
+            }
             if (Math.random() < freebieChance) {
                 spawnFreebieOrb(a.pos);
             }
         } else {
             spawnExpOrb(a.pos, 'NORMAL');
         }
+
+        // SCORING: Add points directly to score (pointsRef) upon kill
+        // Points = Base XP Value * Size Multiplier * Type Multiplier
+        // This is pure score, NOT XP for leveling.
+        const sizeMult = SIZE_MULTIPLIERS[a.sizeCategory as 1 | 2 | 3 | 4];
+        const points = Math.floor(ASTEROID_BASE.XP_VALUE * sizeMult.xp * (isSpecial ? 2 : 1));
+        pointsRef.current += points;
+        spawnFloatingText(a.pos, `+${points}`, '#ffffff', 8); // Small white text for pure score
     };
 
     // Centralized Shield Save Logic - use this whenever a shield save triggers
@@ -835,7 +875,14 @@ const AsteroidsGame: React.FC = () => {
         if (!isDevSequence) {
             levelRef.current += 1;
             setUiLevel(levelRef.current);
-            xpTargetRef.current = Math.floor(xpTargetRef.current * XP_SCALING_FACTOR + 1000);
+
+            // FIX: Reset XP bar - carry over overflow to next level
+            const previousTarget = xpTargetRef.current;
+            const overflow = xpRef.current - previousTarget;
+            xpRef.current = Math.max(0, overflow); // Keep overflow XP, but not negative
+
+            // Calculate new target (without the +1000 - just use scaling factor)
+            xpTargetRef.current = Math.floor(previousTarget * XP_SCALING_FACTOR);
         }
 
         setGameState(GameState.LEVEL_UP);
@@ -871,8 +918,8 @@ const AsteroidsGame: React.FC = () => {
         setUiActiveUpgrades({ ...activeUpgradesRef.current });
     };
 
-    const checkLevelUp = (currentScore: number) => {
-        if (currentScore >= xpTargetRef.current) {
+    const checkLevelUp = (currentXp: number) => {
+        if (currentXp >= xpTargetRef.current) {
             prepareLevelUp();
         }
     };
@@ -1014,12 +1061,12 @@ const AsteroidsGame: React.FC = () => {
 
             // Update XP Bar in HUD directly to avoid React Render on every frame
             if (levelBarRef.current) {
-                const pct = Math.min(100, (scoreRef.current / xpTargetRef.current) * 100);
+                const pct = Math.min(100, (xpRef.current / xpTargetRef.current) * 100);
                 levelBarRef.current.style.width = `${pct}%`;
             }
             // Update XP Text overlay
             if (xpTextRef.current) {
-                xpTextRef.current.textContent = `${Math.floor(scoreRef.current)} / ${xpTargetRef.current}`;
+                xpTextRef.current.textContent = `${Math.floor(xpRef.current)} / ${xpTargetRef.current}`;
             }
 
             // Update Hull Bar in HUD directly (same pattern as XP bar)
@@ -1040,6 +1087,11 @@ const AsteroidsGame: React.FC = () => {
                 } else {
                     regenTextRef.current.style.opacity = '0';
                 }
+            }
+
+            // Sync Score with React State (throttled to every 15 frames / 250ms)
+            if (frameCountRef.current % 15 === 0) {
+                setUiScore(Math.floor(pointsRef.current));
             }
 
             // Update Shield Recharge Bar in HUD directly
@@ -1091,16 +1143,35 @@ const AsteroidsGame: React.FC = () => {
             // --- LOGIC (Paused during LEVEL_UP) ---
             if (gameState === GameState.PLAYING && ship && !ship.toBeRemoved) {
 
-                checkLevelUp(scoreRef.current);
+                checkLevelUp(xpRef.current);
 
-                // --- SPAWNING DIRECTOR (disabled in sandbox mode) ---
+                // --- SPAWNING DIRECTOR: THREAT-WEIGHTED SYSTEM ---
                 if (!sandboxRef.current) {
-                    // Calculate target density based on level (scales endlessly but with soft cap)
-                    const targetDensity = Math.min(
-                        TARGET_ASTEROID_MAX,
-                        TARGET_ASTEROID_BASE + Math.floor(currentLevel * TARGET_ASTEROID_PER_LEVEL)
+                    // Calculate current threat on screen
+                    const calculateThreat = (a: Asteroid): number => {
+                        const sizeMult = SIZE_MULTIPLIERS[a.sizeCategory as 1 | 2 | 3 | 4];
+                        let typeMult = 1.0;
+                        if (a.type === EntityType.MoltenAsteroid) typeMult = ASTEROID_TYPES.MOLTEN.threatMult;
+                        else if (a.type === EntityType.IronAsteroid) typeMult = ASTEROID_TYPES.IRON.threatMult;
+                        else if (a.type === EntityType.FrozenAsteroid) typeMult = ASTEROID_TYPES.FROZEN.threatMult;
+                        else typeMult = ASTEROID_TYPES.REGULAR.threatMult;
+                        return sizeMult.threat * typeMult;
+                    };
+
+                    const currentThreat = asteroidsRef.current.reduce((sum, a) => sum + calculateThreat(a), 0);
+                    const targetThreat = Math.min(
+                        THREAT_BUDGET_MAX,
+                        THREAT_BUDGET_BASE + currentLevel * THREAT_BUDGET_PER_LEVEL
                     );
                     const activeAsteroids = asteroidsRef.current.length;
+
+                    // Enforce minimum asteroid COUNT (never empty screen!)
+                    if (activeAsteroids < TARGET_ASTEROID_MIN) {
+                        const needed = TARGET_ASTEROID_MIN - activeAsteroids;
+                        for (let i = 0; i < needed; i++) {
+                            spawnAsteroid(cw, ch, currentLevel);
+                        }
+                    }
 
                     // Spawn interval decays with level
                     const spawnInterval = Math.max(
@@ -1108,31 +1179,59 @@ const AsteroidsGame: React.FC = () => {
                         Math.floor(SPAWN_INTERVAL_BASE * Math.pow(SPAWN_INTERVAL_DECAY, currentLevel - 1))
                     );
 
-                    if (activeAsteroids < targetDensity && spawnTimerRef.current <= 0) {
+                    // Spawn if under threat budget
+                    if (currentThreat < targetThreat && spawnTimerRef.current <= 0) {
                         // First check if we should spawn an Iron shotgun burst
                         const ironGate = SPAWN_GATES.IRON.SMALL;
                         const ironWeight = currentLevel >= ironGate ?
                             Math.min(TYPE_SPAWN_WEIGHTS.IRON.max || 100, TYPE_SPAWN_WEIGHTS.IRON.base + currentLevel * (TYPE_SPAWN_WEIGHTS.IRON.perLevel || 0)) : 0;
-                        const totalWeight = 100 + ironWeight; // Simplified weight check
+                        const totalWeight = 100 + ironWeight;
                         const ironChance = ironWeight / totalWeight;
 
                         if (Math.random() < ironChance && currentLevel >= ironGate) {
                             // Iron ALWAYS spawns as shotgun burst
                             spawnIronBurst(cw, ch, currentLevel);
                             spawnTimerRef.current = spawnInterval * 1.5;
-                        } else if (Math.random() < SWARM_BURST_CHANCE && currentLevel >= 2) {
-                            // 15% chance for general burst (non-Iron)
-                            spawnBurst(cw, ch, currentLevel);
-                            spawnTimerRef.current = spawnInterval * 2;
                         } else {
+                            // Normal spawn
                             spawnAsteroid(cw, ch, currentLevel);
                             spawnTimerRef.current = spawnInterval + randomRange(-10, 10);
+
+                            // Swarm burst for extra density/satisfaction
+                            if (Math.random() < SWARM_BURST_CHANCE && currentLevel >= 2) {
+                                spawnBurst(cw, ch, currentLevel);
+                            }
                         }
                     }
                     if (spawnTimerRef.current > 0) spawnTimerRef.current--;
                 }
 
-                // Apply Stats
+                // --- PROCESS STAGGERED SPAWNS (pew pew pew effect) ---
+                const currentFrame = frameCountRef.current;
+                const toSpawn = pendingSpawnsRef.current.filter(p => p.spawnAt <= currentFrame);
+                pendingSpawnsRef.current = pendingSpawnsRef.current.filter(p => p.spawnAt > currentFrame);
+
+                for (const pending of toSpawn) {
+                    const props = calculateAsteroidProps(pending.typeName, pending.sizeCat, currentLevel);
+                    asteroidsRef.current.push({
+                        id: Math.random().toString(36).substr(2, 9),
+                        type: getEntityType(pending.typeName),
+                        pos: { ...pending.pos },
+                        vel: { ...pending.vel },
+                        radius: props.radius,
+                        angle: 0,
+                        color: props.color,
+                        toBeRemoved: false,
+                        vertices: generatePolygon(props.radius, props.vertices, pending.sizeCat * 3),
+                        hp: props.hp,
+                        maxHp: props.hp,
+                        sizeCategory: pending.sizeCat,
+                        hitFlash: 0,
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: randomRange(-props.rotation, props.rotation),
+                        pulsateOffset: Math.random() * Math.PI * 2
+                    });
+                }
                 const stats = ship.stats;
 
                 ship.isFrozen = false;
@@ -1360,14 +1459,10 @@ const AsteroidsGame: React.FC = () => {
                             damage: damagePerBullet,
                             bouncesRemaining: stats.ricochetTier
                         });
-
-                        // Muzzle flash: tiny spark particles for satisfying shoot feedback
-                        const muzzlePos = {
-                            x: ship.pos.x + Math.cos(a) * ship.radius,
-                            y: ship.pos.y + Math.sin(a) * ship.radius
-                        };
-                        spawnParticles(muzzlePos, '#88ccff', 2, 3);
                     });
+
+                    // Plasma exhaust wisp ejects once per shot
+                    spawnPlasmaExhaust(ship.pos, ship.rotation, ship.vel);
                 }
 
                 // --- Drone Swarm Logic ---
@@ -1498,6 +1593,40 @@ const AsteroidsGame: React.FC = () => {
 
             asteroidsRef.current.forEach(a => {
                 if (gameState !== GameState.LEVEL_UP) {
+                    // MOLTEN HOMING: Gently track player, but decay so it drifts off
+                    if (a.type === EntityType.MoltenAsteroid && ship && !ship.toBeRemoved) {
+                        const HOMING_STRENGTH = 0.015; // Very gentle tracking
+                        const angleToPlayer = Math.atan2(ship.pos.y - a.pos.y, ship.pos.x - a.pos.x);
+                        const speed = Math.sqrt(a.vel.x * a.vel.x + a.vel.y * a.vel.y);
+
+                        // Blend current velocity toward player direction
+                        a.vel.x += Math.cos(angleToPlayer) * HOMING_STRENGTH;
+                        a.vel.y += Math.sin(angleToPlayer) * HOMING_STRENGTH;
+
+                        // Normalize to maintain original speed (prevent acceleration)
+                        const newSpeed = Math.sqrt(a.vel.x * a.vel.x + a.vel.y * a.vel.y);
+                        if (newSpeed > 0) {
+                            a.vel.x = (a.vel.x / newSpeed) * speed;
+                            a.vel.y = (a.vel.y / newSpeed) * speed;
+                        }
+                    }
+
+                    // SOFT DECLUMP: Gently push apart overlapping asteroids
+                    const DECLUMP_FORCE = 0.08;
+                    const DECLUMP_RANGE = 1.2; // Activate when overlapping by 20%
+                    for (const other of asteroidsRef.current) {
+                        if (other === a || other.toBeRemoved) continue;
+                        const dx = a.pos.x - other.pos.x;
+                        const dy = a.pos.y - other.pos.y;
+                        const d = Math.sqrt(dx * dx + dy * dy);
+                        const minDist = (a.radius + other.radius) * DECLUMP_RANGE;
+                        if (d < minDist && d > 0) {
+                            const pushStrength = ((minDist - d) / minDist) * DECLUMP_FORCE;
+                            a.vel.x += (dx / d) * pushStrength;
+                            a.vel.y += (dy / d) * pushStrength;
+                        }
+                    }
+
                     a.pos.x += a.vel.x;
                     a.pos.y += a.vel.y;
                     a.rotation += a.rotationSpeed;
@@ -1595,6 +1724,10 @@ const AsteroidsGame: React.FC = () => {
                         if (p.variant === 'DEBRIS') {
                             p.vel.x *= 0.92;
                             p.vel.y *= 0.92;
+                        } else if (p.variant === 'SHELL') {
+                            // Plasma exhaust - gentle friction in zero-G
+                            p.vel.x *= 0.96;
+                            p.vel.y *= 0.96;
                         }
 
                         p.life -= p.decay;
@@ -1718,8 +1851,14 @@ const AsteroidsGame: React.FC = () => {
                             // XP orbs give flat value (xpMult from Tractor Beam still applies)
                             const finalVal = Math.floor(orb.value * ship.stats.xpMult);
 
-                            // XP orbs contribute to leveling
-                            scoreRef.current += finalVal;
+                            // SEPARATION: XP vs POINTS
+                            // 1. Add to XP for leveling (strictly XP)
+                            xpRef.current += finalVal;
+
+                            // 2. Add to Points for score (strictly Score)
+                            // Points = XP Value * 10 (arbitrary score scaling for satisfaction)
+                            const pointsVal = finalVal * 10;
+                            pointsRef.current += pointsVal;
 
                             const color = orb.variant === 'SUPER' ? COLORS.XP_SUPER : COLORS.XP_NORMAL;
                             spawnFloatingText(ship.pos, `+${finalVal} XP`, color, orb.variant === 'SUPER' ? 20 : 12);
@@ -1757,33 +1896,25 @@ const AsteroidsGame: React.FC = () => {
                                 // Molten also has extra knockback (2x on top of type mult)
                                 const finalKnockback = a.type === EntityType.MoltenAsteroid ? knockback * 2 : knockback;
 
-                                if (a.sizeCategory === 1 && a.type !== EntityType.IronAsteroid) {
-                                    // Small regular asteroids are destroyed on contact
-                                    a.toBeRemoved = true;
-                                    spawnParticles(a.pos, a.color, 10, 4);
-                                    ship.hull -= damage;
-                                    spawnFloatingText(ship.pos, `-${damage} HP`, COLORS.TEXT, 12);
-                                    screenShakeRef.current = 6;
+                                // All asteroids deal damage + knockback (ship no longer destroys on impact)
+                                const angle = Math.atan2(ship.pos.y - a.pos.y, ship.pos.x - a.pos.x);
+                                ship.vel.x += Math.cos(angle) * finalKnockback;
+                                ship.vel.y += Math.sin(angle) * finalKnockback;
+                                ship.hull -= damage;
+                                if (a.type !== EntityType.FrozenAsteroid) a.hitFlash = HIT_FLASH_FRAMES;
+
+                                // Molten gets extra dramatic effects
+                                if (a.type === EntityType.MoltenAsteroid) {
+                                    spawnParticles(a.pos, COLORS.MOLTEN, 30, 8);
+                                    screenShakeRef.current = 20;
+                                    spawnFloatingText(ship.pos, `-${damage} BURN!`, '#ff4444', 20);
                                 } else {
-                                    const angle = Math.atan2(ship.pos.y - a.pos.y, ship.pos.x - a.pos.x);
-                                    ship.vel.x += Math.cos(angle) * finalKnockback;
-                                    ship.vel.y += Math.sin(angle) * finalKnockback;
-                                    ship.hull -= damage;
-                                    if (a.type !== EntityType.FrozenAsteroid) a.hitFlash = HIT_FLASH_FRAMES;
-
-                                    // Molten gets extra dramatic effects
-                                    if (a.type === EntityType.MoltenAsteroid) {
-                                        spawnParticles(a.pos, COLORS.MOLTEN, 30, 8);
-                                        screenShakeRef.current = 20;
-                                        spawnFloatingText(ship.pos, `-${damage} BURN!`, '#ff4444', 20);
-                                    } else {
-                                        spawnParticles(ship.pos, COLORS.SHIP, 15, 6);
-                                        screenShakeRef.current = a.type === EntityType.IronAsteroid ? 15 : 6;
-                                        spawnFloatingText(ship.pos, `-${damage} HP`, '#ff0000', 16);
-                                    }
-
-                                    ship.invulnerableUntil = Date.now() + 300;
+                                    spawnParticles(ship.pos, COLORS.SHIP, 15, 6);
+                                    screenShakeRef.current = a.type === EntityType.IronAsteroid ? 15 : 6;
+                                    spawnFloatingText(ship.pos, `-${damage} HP`, '#ff0000', 16);
                                 }
+
+                                ship.invulnerableUntil = Date.now() + 300;
 
                                 if (ship.hull <= 0) {
                                     if (!triggerShieldSave()) {
@@ -1833,6 +1964,40 @@ const AsteroidsGame: React.FC = () => {
                     ctx.arc(p.pos.x, p.pos.y, p.radius * p.life, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.shadowBlur = 0;
+                } else if (p.variant === 'SHELL') {
+                    // Plasma cartridge - elongated glowing shape that tumbles
+                    ctx.save();
+                    ctx.translate(p.pos.x, p.pos.y);
+
+                    // Tumble based on elapsed time (spins in zero-G)
+                    const spinSpeed = p.angle > 0 ? 8 : -8; // Spin direction from spawn
+                    const tumble = p.angle + (1 - p.life) * spinSpeed;
+                    ctx.rotate(tumble);
+
+                    // Glow effect
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = 4; // Subtle glow
+
+                    // Cartridge dimensions (smaller)
+                    const width = 2;
+                    const height = 4;
+
+                    // Outer glow (cyan) - dimmer
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.life * 0.35;
+                    ctx.beginPath();
+                    ctx.roundRect(-width / 2 - 1, -height / 2 - 1, width + 2, height + 2, 2);
+                    ctx.fill();
+
+                    // Inner core - less bright
+                    ctx.fillStyle = '#aaddff';
+                    ctx.globalAlpha = p.life * 0.5;
+                    ctx.beginPath();
+                    ctx.roundRect(-width / 2, -height / 2, width, height, 1);
+                    ctx.fill();
+
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
                 } else {
                     ctx.strokeStyle = p.color;
                     ctx.lineWidth = 2;
