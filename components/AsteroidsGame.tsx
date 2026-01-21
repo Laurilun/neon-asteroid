@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-    Asteroid, Bullet, EntityType, GameState, Particle, Ship, ExpOrb, HullOrb, FreebieOrb, Vector, Drone, UpgradeCategory, UpgradeDef, Entity, FractureData
+    Asteroid, Bullet, EntityType, GameState, Particle, Ship, ExpOrb, HullOrb, FreebieOrb, Vector, Drone, UpgradeCategory, UpgradeDef, Entity, FractureData, AsteroidCloud
 } from '../types';
 import {
     // Ship
@@ -12,15 +12,18 @@ import {
     // NEW Asteroid System
     ASTEROID_SIZES, ASTEROID_BASE, SIZE_MULTIPLIERS, ASTEROID_TYPES,
     ASTEROID_SPLIT_COUNT_NORMAL, ASTEROID_SPLIT_COUNT_XLARGE, ASTEROID_SPLIT_MIN_SIZE, ASTEROID_SPLIT_SEPARATION_SPEED, ASTEROID_SPLIT_OFFSET_RATIO,
+    // Soft Physics (declump only - gravity is now Tungsten-specific)
+    SOFT_DECLUMP_RANGE, SOFT_DECLUMP_FORCE,
     // NEW Spawning System
     SPAWN_INTERVAL_BASE, SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_DECAY,
     THREAT_BUDGET_BASE, THREAT_BUDGET_PER_LEVEL, THREAT_BUDGET_MAX, TARGET_ASTEROID_MIN,
     LEVEL_HP_SCALING, LEVEL_SPEED_SCALING, LEVEL_SPEED_CAP,
     SPAWN_GATES, TYPE_SPAWN_WEIGHTS, SIZE_SPAWN_WEIGHTS,
-    // Swarm Bursts
-    SWARM_BURST_CHANCE, SWARM_BURST_COUNT_BASE, SWARM_BURST_COUNT_PER_LEVEL, SWARM_BURST_COUNT_MAX,
-    SWARM_BURST_SPEED_BASE, SWARM_BURST_SPEED_PER_LEVEL, SWARM_BURST_SPEED_MAX, SWARM_BURST_SPREAD,
-    SWARM_BURST_MEDIUM_CHANCE_PER_LEVEL,
+    // Asteroid Cloud (cohesive swarm entity)
+    CLOUD_SPAWN_CHANCE, CLOUD_SIZE_MIN, CLOUD_SIZE_MAX, CLOUD_SIZE_PER_LEVEL,
+    CLOUD_COHESION_STRENGTH, CLOUD_HOMING_STRENGTH,
+    CLOUD_SPEED_BASE, CLOUD_SPEED_PER_LEVEL, CLOUD_SPEED_MAX,
+    CLOUD_SPAWN_RADIUS, CLOUD_MAX_SPREAD,
     // Iron Shotgun Burst
     IRON_BURST_COUNT_BASE, IRON_BURST_COUNT_PER_LEVEL, IRON_BURST_COUNT_MAX, IRON_BURST_SPEED_MULT, IRON_BURST_SPREAD,
     // Drones
@@ -149,6 +152,7 @@ const AsteroidsGame: React.FC = () => {
     const hullOrbsRef = useRef<HullOrb[]>([]);
     const freebieOrbsRef = useRef<FreebieOrb[]>([]);
     const dronesRef = useRef<Drone[]>([]);
+    const asteroidCloudsRef = useRef<AsteroidCloud[]>([]);
     const floatingTextsRef = useRef<FloatingText[]>([]);
 
     const inputRef = useRef({ up: false, left: false, right: false });
@@ -383,7 +387,7 @@ const AsteroidsGame: React.FC = () => {
     // Select asteroid type based on level and weights
     // NOTE: IRON excluded here - it ONLY spawns via spawnIronBurst()
     const selectAsteroidType = (currentLevel: number): AsteroidTypeName => {
-        const types: AsteroidTypeName[] = ['REGULAR', 'MOLTEN', 'FROZEN']; // No IRON!
+        const types: AsteroidTypeName[] = ['REGULAR', 'MOLTEN', 'FROZEN', 'TUNGSTEN']; // No IRON!
         const weights: number[] = [];
 
         for (const type of types) {
@@ -443,6 +447,7 @@ const AsteroidsGame: React.FC = () => {
             case 'MOLTEN': return EntityType.MoltenAsteroid;
             case 'IRON': return EntityType.IronAsteroid;
             case 'FROZEN': return EntityType.FrozenAsteroid;
+            case 'TUNGSTEN': return EntityType.TungstenAsteroid;
             default: return EntityType.Asteroid;
         }
     };
@@ -516,34 +521,72 @@ const AsteroidsGame: React.FC = () => {
         });
     };
 
-    // Spawn a burst of small asteroids - STAGGERED for "pew pew pew" cloud effect
-    const spawnBurst = (cw: number, ch: number, currentLevel: number) => {
-        const scaledCount = SWARM_BURST_COUNT_BASE + Math.floor(currentLevel * SWARM_BURST_COUNT_PER_LEVEL);
-        const count = Math.min(scaledCount, SWARM_BURST_COUNT_MAX);
+    // Spawn an asteroid cloud - cohesive formation that follows cloud center
+    const spawnCloud = (cw: number, ch: number, currentLevel: number) => {
+        const scaledCount = CLOUD_SIZE_MIN + Math.floor(currentLevel * CLOUD_SIZE_PER_LEVEL);
+        const count = Math.min(scaledCount, CLOUD_SIZE_MAX);
+
+        // Cloud spawns from edge
         const spawnPos = getSpawnPosition(cw, ch, 120);
         const baseAngle = getTargetAngle(spawnPos, 0);
-        const currentFrame = frameCountRef.current;
-        const STAGGER_FRAMES = 5; // Spawn one asteroid every 5 frames
 
+        // Cloud speed toward player
+        const speedMult = Math.min(CLOUD_SPEED_BASE + currentLevel * CLOUD_SPEED_PER_LEVEL, CLOUD_SPEED_MAX);
+        const props = calculateAsteroidProps('REGULAR', 1, currentLevel);
+        const cloudSpeed = props.speed * speedMult;
+
+        const cloudId = Math.random().toString(36).substr(2, 9);
+        const memberIds: string[] = [];
+        const memberOffsets: Vector[] = [];
+
+        // Create members with fixed offsets from cloud center
         for (let i = 0; i < count; i++) {
-            const mediumChance = Math.min(currentLevel * SWARM_BURST_MEDIUM_CHANCE_PER_LEVEL, 0.25);
-            const sizeCat = (Math.random() < mediumChance ? 2 : 1) as 1 | 2;
-            const props = calculateAsteroidProps('REGULAR', sizeCat, currentLevel);
+            // Random scatter formation (not a perfect circle)
+            const offsetAngle = Math.random() * Math.PI * 2;
+            const offsetDist = 15 + Math.random() * (CLOUD_SPAWN_RADIUS * 1.5);
+            const offset: Vector = {
+                x: Math.cos(offsetAngle) * offsetDist,
+                y: Math.sin(offsetAngle) * offsetDist
+            };
+            memberOffsets.push(offset);
 
-            // Speed scales with level
-            const scaledSpeedMult = Math.min(SWARM_BURST_SPEED_BASE + currentLevel * SWARM_BURST_SPEED_PER_LEVEL, SWARM_BURST_SPEED_MAX);
-            const angle = baseAngle + (Math.random() - 0.5) * SWARM_BURST_SPREAD * 2;
-            const burstSpeed = props.speed * scaledSpeedMult;
+            const memberPos = {
+                x: spawnPos.x + offset.x,
+                y: spawnPos.y + offset.y
+            };
 
-            // Queue for staggered spawn
-            pendingSpawnsRef.current.push({
-                spawnAt: currentFrame + (i * STAGGER_FRAMES),
-                pos: { ...spawnPos }, // All from same point
-                vel: { x: Math.cos(angle) * burstSpeed, y: Math.sin(angle) * burstSpeed },
-                sizeCat: sizeCat,
-                typeName: 'REGULAR'
+            const memberId = Math.random().toString(36).substr(2, 9);
+            memberIds.push(memberId);
+
+            // Members have zero velocity - cloud controls their position
+            asteroidsRef.current.push({
+                id: memberId,
+                type: EntityType.Asteroid,
+                pos: memberPos,
+                vel: { x: 0, y: 0 },
+                radius: props.radius,
+                angle: 0,
+                color: props.color,
+                toBeRemoved: false,
+                vertices: generatePolygon(props.radius, props.vertices, 3),
+                hp: props.hp,
+                maxHp: props.hp,
+                sizeCategory: 1,
+                hitFlash: 0,
+                rotation: Math.random() * Math.PI * 2,
+                rotationSpeed: randomRange(-props.rotation, props.rotation),
+                pulsateOffset: Math.random() * Math.PI * 2
             });
         }
+
+        asteroidCloudsRef.current.push({
+            id: cloudId,
+            pos: { ...spawnPos },
+            vel: { x: Math.cos(baseAngle) * cloudSpeed, y: Math.sin(baseAngle) * cloudSpeed },
+            memberIds: memberIds,
+            memberOffsets: memberOffsets,
+            spawnTime: frameCountRef.current
+        });
     };
 
     // Spawn Iron shotgun burst - scales with level for progressive difficulty
@@ -780,6 +823,7 @@ const AsteroidsGame: React.FC = () => {
                 case EntityType.MoltenAsteroid: return 'MOLTEN';
                 case EntityType.IronAsteroid: return 'IRON';
                 case EntityType.FrozenAsteroid: return 'FROZEN';
+                case EntityType.TungstenAsteroid: return 'TUNGSTEN';
                 default: return 'REGULAR';
             }
         };
@@ -850,7 +894,7 @@ const AsteroidsGame: React.FC = () => {
         const sizeMult = SIZE_MULTIPLIERS[a.sizeCategory as 1 | 2 | 3 | 4];
         const points = Math.floor(ASTEROID_BASE.XP_VALUE * sizeMult.xp * (isSpecial ? 2 : 1));
         pointsRef.current += points;
-        spawnFloatingText(a.pos, `+${points}`, '#ffffff', 8); // Small white text for pure score
+
     };
 
     // Centralized Shield Save Logic - use this whenever a shield save triggers
@@ -1197,9 +1241,9 @@ const AsteroidsGame: React.FC = () => {
                             spawnAsteroid(cw, ch, currentLevel);
                             spawnTimerRef.current = spawnInterval + randomRange(-10, 10);
 
-                            // Swarm burst for extra density/satisfaction
-                            if (Math.random() < SWARM_BURST_CHANCE && currentLevel >= 2) {
-                                spawnBurst(cw, ch, currentLevel);
+                            // Asteroid cloud for cohesive swarm engagement
+                            if (Math.random() < CLOUD_SPAWN_CHANCE && currentLevel >= 2) {
+                                spawnCloud(cw, ch, currentLevel);
                             }
                         }
                     }
@@ -1611,19 +1655,53 @@ const AsteroidsGame: React.FC = () => {
                         }
                     }
 
-                    // SOFT DECLUMP: Gently push apart overlapping asteroids
-                    const DECLUMP_FORCE = 0.08;
-                    const DECLUMP_RANGE = 1.2; // Activate when overlapping by 20%
+                    // SOFT PHYSICS: Repulsion Only (gravity is now Tungsten-specific)
+                    // Asteroids push apart when overlapping to prevent stacking
                     for (const other of asteroidsRef.current) {
                         if (other === a || other.toBeRemoved) continue;
                         const dx = a.pos.x - other.pos.x;
                         const dy = a.pos.y - other.pos.y;
                         const d = Math.sqrt(dx * dx + dy * dy);
-                        const minDist = (a.radius + other.radius) * DECLUMP_RANGE;
-                        if (d < minDist && d > 0) {
-                            const pushStrength = ((minDist - d) / minDist) * DECLUMP_FORCE;
+
+                        if (d === 0) continue; // Skip if perfectly overlapping
+
+                        const minDist = (a.radius + other.radius) * SOFT_DECLUMP_RANGE;
+
+                        // REPULSION: Push apart when overlapping
+                        if (d < minDist) {
+                            const pushStrength = ((minDist - d) / minDist) * SOFT_DECLUMP_FORCE;
                             a.vel.x += (dx / d) * pushStrength;
                             a.vel.y += (dy / d) * pushStrength;
+                        }
+                    }
+
+                    // TUNGSTEN GRAVITY AURA: Pull regular asteroids toward Tungsten
+                    // Only Tungsten asteroids have gravity, and they only affect REGULAR asteroids
+                    if (a.type === EntityType.Asteroid) { // If this is a REGULAR asteroid
+                        for (const tungsten of asteroidsRef.current) {
+                            if (tungsten.toBeRemoved || tungsten.type !== EntityType.TungstenAsteroid) continue;
+
+                            const dx = tungsten.pos.x - a.pos.x;
+                            const dy = tungsten.pos.y - a.pos.y;
+                            const d = Math.sqrt(dx * dx + dy * dy);
+
+                            if (d === 0) continue;
+
+                            // Get Tungsten's gravity config
+                            const tungstenConfig = ASTEROID_TYPES.TUNGSTEN;
+                            if (!tungstenConfig.hasGravityAura) continue;
+
+                            // Calculate gravity range with size scaling
+                            const sizeScale = tungstenConfig.gravitySizeScale || 0;
+                            const sizeBonus = 1 + (tungsten.sizeCategory - 1) * sizeScale;
+                            const gravityRange = (tungstenConfig.gravityRange || 200) * sizeBonus;
+
+                            // Pull toward Tungsten if in range
+                            if (d < gravityRange) {
+                                const pullStrength = (1 - (d / gravityRange)) * (tungstenConfig.gravityStrength || 0.15);
+                                a.vel.x += (dx / d) * pullStrength;
+                                a.vel.y += (dy / d) * pullStrength;
+                            }
                         }
                     }
 
@@ -1633,8 +1711,9 @@ const AsteroidsGame: React.FC = () => {
 
                     if (a.hitFlash > 0) a.hitFlash--;
 
-                    if (a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid || a.type === EntityType.IronAsteroid) {
-                        const buffer = 200;
+                    if (a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid || a.type === EntityType.IronAsteroid || a.type === EntityType.TungstenAsteroid) {
+                        // Tungsten has 600px gravity aura, so it needs a larger buffer to not despawn while visible
+                        const buffer = a.type === EntityType.TungstenAsteroid ? 600 : 200;
                         if (a.pos.x < -buffer || a.pos.x > cw + buffer || a.pos.y < -buffer || a.pos.y > ch + buffer) {
                             a.toBeRemoved = true;
                         }
@@ -1646,6 +1725,72 @@ const AsteroidsGame: React.FC = () => {
                     }
                 }
             });
+
+            // --- ASTEROID CLOUD PHYSICS ---
+            // Clouds keep their member asteroids together and home toward player
+            if (ship && !ship.toBeRemoved) {
+                asteroidCloudsRef.current.forEach((cloud) => {
+                    // Find living members with their offset indices
+                    const livingMembers: { member: Asteroid; idx: number }[] = [];
+                    for (let i = 0; i < cloud.memberIds.length; i++) {
+                        const member = asteroidsRef.current.find(a => a.id === cloud.memberIds[i] && !a.toBeRemoved);
+                        if (member) livingMembers.push({ member, idx: i });
+                    }
+
+                    // If all members destroyed, remove cloud
+                    if (livingMembers.length === 0) {
+                        cloud.memberIds = [];
+                        return;
+                    }
+
+                    // Steer cloud toward player (gentle)
+                    const dx = ship.pos.x - cloud.pos.x;
+                    const dy = ship.pos.y - cloud.pos.y;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+
+                    if (d > 0) {
+                        const targetVx = (dx / d) * 1.2;
+                        const targetVy = (dy / d) * 1.2;
+                        cloud.vel.x += (targetVx - cloud.vel.x) * 0.002;
+                        cloud.vel.y += (targetVy - cloud.vel.y) * 0.002;
+                    }
+
+                    // Cap speed
+                    const spd = Math.sqrt(cloud.vel.x * cloud.vel.x + cloud.vel.y * cloud.vel.y);
+                    if (spd > 1.5) {
+                        cloud.vel.x = (cloud.vel.x / spd) * 1.5;
+                        cloud.vel.y = (cloud.vel.y / spd) * 1.5;
+                    }
+
+                    // Move cloud center
+                    cloud.pos.x += cloud.vel.x;
+                    cloud.pos.y += cloud.vel.y;
+
+                    // Position members at fixed offsets (direct follow)
+                    for (const { member, idx } of livingMembers) {
+                        const offset = cloud.memberOffsets[idx];
+                        if (offset) {
+                            // Direct position - no interpolation delay
+                            member.pos.x = cloud.pos.x + offset.x;
+                            member.pos.y = cloud.pos.y + offset.y;
+                            member.vel.x = 0;
+                            member.vel.y = 0;
+                        }
+                    }
+
+                    // Off-screen cleanup
+                    const buffer = 150;
+                    if (cloud.pos.x < -buffer || cloud.pos.x > cw + buffer || cloud.pos.y < -buffer || cloud.pos.y > ch + buffer) {
+                        for (const { member } of livingMembers) {
+                            member.toBeRemoved = true;
+                        }
+                        cloud.memberIds = [];
+                    }
+                });
+
+                // Clean up empty clouds
+                asteroidCloudsRef.current = asteroidCloudsRef.current.filter(c => c.memberIds.length > 0);
+            }
 
             const updateOrb = (o: ExpOrb | HullOrb, type: 'EXP' | 'HULL') => {
                 if (gameState !== GameState.LEVEL_UP) {
@@ -2209,6 +2354,52 @@ const AsteroidsGame: React.FC = () => {
                     }
                 }
 
+                // Tungsten gravity aura - dark brown with vibrating space-bending effect
+                if (a.type === EntityType.TungstenAsteroid) {
+                    const tungstenCfg = ASTEROID_TYPES.TUNGSTEN;
+                    if (tungstenCfg.hasGravityAura && tungstenCfg.gravityRange) {
+                        const sizeScale = tungstenCfg.gravitySizeScale || 0;
+                        const sizeBonus = 1 + (a.sizeCategory - 1) * sizeScale;
+                        const gravityRadius = (tungstenCfg.gravityRange * sizeBonus) + a.radius;
+
+                        ctx.save();
+                        ctx.rotate(-a.rotation);
+
+                        // Vibrating space-bending effect - multiple rings that oscillate
+                        const time = frameCountRef.current * 0.08;
+                        const baseColor = '#6b4f3a'; // Warm brown glow
+
+                        for (let i = 0; i < 4; i++) {
+                            // Each ring pulses inward at staggered speeds
+                            const ringPhase = (time + i * 0.25) % 1;
+                            const ringRadius = gravityRadius * (1 - ringPhase * 0.4);
+                            const ringAlpha = (1 - ringPhase) * 0.2;
+
+                            // Vibrating line width for space-bending effect
+                            const vibrate = Math.sin(frameCountRef.current * 0.3 + i * 1.5) * 1.5;
+                            const lineWidth = 2 + Math.abs(vibrate);
+
+                            ctx.strokeStyle = baseColor;
+                            ctx.lineWidth = lineWidth;
+                            ctx.globalAlpha = ringAlpha;
+                            ctx.beginPath();
+                            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+                            ctx.stroke();
+                        }
+
+                        // Inner distortion ring - extra vibrating effect
+                        const innerVibrate = Math.sin(frameCountRef.current * 0.5) * 3;
+                        ctx.strokeStyle = '#4a3728';
+                        ctx.lineWidth = 3 + Math.abs(innerVibrate);
+                        ctx.globalAlpha = 0.3 + Math.sin(frameCountRef.current * 0.15) * 0.1;
+                        ctx.beginPath();
+                        ctx.arc(0, 0, a.radius * 1.8 + innerVibrate, 0, Math.PI * 2);
+                        ctx.stroke();
+
+                        ctx.restore();
+                    }
+                }
+
                 if (a.hitFlash <= 0) {
                     ctx.beginPath();
                     if (a.vertices.length > 0) {
@@ -2224,7 +2415,7 @@ const AsteroidsGame: React.FC = () => {
                 const drawPath = (jitter: number = 0) => {
                     ctx.beginPath();
                     if (a.vertices.length > 0) {
-                        const isSpecial = a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid || a.type === EntityType.IronAsteroid;
+                        const isSpecial = a.type === EntityType.MoltenAsteroid || a.type === EntityType.FrozenAsteroid || a.type === EntityType.IronAsteroid || a.type === EntityType.TungstenAsteroid;
                         const v0 = a.vertices[0];
                         ctx.moveTo(v0.x + (isSpecial ? randomRange(-jitter, jitter) : 0), v0.y + (isSpecial ? randomRange(-jitter, jitter) : 0));
                         for (let i = 1; i < a.vertices.length; i++) {
@@ -2245,23 +2436,29 @@ const AsteroidsGame: React.FC = () => {
                     const isMolten = a.type === EntityType.MoltenAsteroid;
                     const isFrozen = a.type === EntityType.FrozenAsteroid;
                     const isIron = a.type === EntityType.IronAsteroid;
-                    const isSpecial = isMolten || isFrozen || isIron;
+                    const isTungsten = a.type === EntityType.TungstenAsteroid;
+                    const isSpecial = isMolten || isFrozen || isIron || isTungsten;
+
+                    // Tungsten gets vibrating line width for space-bending effect
+                    const vibrateAmount = isTungsten ? Math.sin(frameCountRef.current * 0.4) * 2 : 0;
+                    const outerWidth = (isSpecial ? 5 : 4) + vibrateAmount;
+                    const innerWidth = (isSpecial ? 2 : 1.5) + vibrateAmount * 0.5;
 
                     drawPath(isSpecial ? 2.5 : 1.5);
                     ctx.strokeStyle = a.color;
-                    ctx.lineWidth = isSpecial ? 5 : 4;
+                    ctx.lineWidth = outerWidth;
                     ctx.globalAlpha = 0.4;
                     ctx.stroke();
 
                     drawPath(isSpecial ? 1.0 : 0.5);
-                    ctx.strokeStyle = isMolten ? '#fff5f5' : isFrozen ? '#e0f2fe' : isIron ? '#fcd34d' : '#ffffff';
-                    ctx.lineWidth = isSpecial ? 2 : 1.5;
+                    ctx.strokeStyle = isMolten ? '#fff5f5' : isFrozen ? '#e0f2fe' : isIron ? '#fcd34d' : isTungsten ? '#8b7355' : '#ffffff';
+                    ctx.lineWidth = innerWidth;
                     ctx.globalAlpha = 1.0;
                     ctx.stroke();
 
                     if (isSpecial) {
                         ctx.fillStyle = a.color;
-                        ctx.globalAlpha = isIron ? 0.6 : 0.3;
+                        ctx.globalAlpha = isIron ? 0.6 : isTungsten ? 0.5 : 0.3;
                         ctx.fill();
                     }
                 }

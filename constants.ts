@@ -66,6 +66,10 @@ export const ASTEROID_BASE = {
     XP_VALUE: 30         // Base XP orb value
 };
 
+// Soft Physics - Anti-Stacking Only (gravity removed - now Tungsten-specific)
+export const SOFT_DECLUMP_RANGE = 1.2;          // Repel when overlapping by 20%
+export const SOFT_DECLUMP_FORCE = 0.08;         // Push strength when too close
+
 // --- Size Multipliers (applied to base values) ---
 // REBALANCED: Lower HP for faster kills, lower damage for forgiveness
 // threat = base threat value for director system
@@ -78,7 +82,7 @@ export const SIZE_MULTIPLIERS = {
 
 // --- Type Definitions ---
 // Each type has unique behavior characteristics
-export type AsteroidTypeName = 'REGULAR' | 'MOLTEN' | 'IRON' | 'FROZEN';
+export type AsteroidTypeName = 'REGULAR' | 'MOLTEN' | 'IRON' | 'FROZEN' | 'TUNGSTEN';
 
 export interface AsteroidTypeConfig {
     speedMult: number;       // Speed multiplier
@@ -96,6 +100,11 @@ export interface AsteroidTypeConfig {
     auraSizeScale?: number;  // Aura scales with size (0.25 = +25% per size tier)
     auraSlowFactor?: number; // Speed reduction in aura (0.4 = 60% slower, 1.0 = no slow)
     auraDPS?: number;        // Damage per second in aura
+    // Gravity aura (Tungsten)
+    hasGravityAura?: boolean;    // Pulls regular asteroids toward it
+    gravityRange?: number;       // Base gravity pull radius
+    gravitySizeScale?: number;   // Gravity range scales with size
+    gravityStrength?: number;    // Pull force on nearby asteroids
 }
 
 export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
@@ -145,6 +154,19 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
         auraDPS: 15,
         color: '#06b6d4',
         glowColor: '#22d3ee'
+    },
+    TUNGSTEN: {
+        speedMult: 1.0,           // Normal speed (like regular asteroids)
+        hpMult: 8.0,              // Extremely tanky - mini-boss feel
+        damageMult: 1.5,          // Moderate contact damage
+        threatMult: 3.0,          // Very high threat - creates dangerous clusters
+        splits: false,
+        hasGravityAura: true,     // Pulls regular asteroids into orbit
+        gravityRange: 600,        // Large gravity pull range
+        gravitySizeScale: 0.5,    // +50% range per size tier
+        gravityStrength: 0.06,    // Gentle pull (1/3 of previous)
+        color: '#4a3728',         // Dark brown - heavy dense metal
+        glowColor: '#6b4f3a'      // Warm brown glow
     }
 };
 
@@ -184,7 +206,8 @@ export const SPAWN_GATES = {
     REGULAR: { SMALL: 1, MEDIUM: 1, LARGE: 3, XLARGE: 10 },
     MOLTEN: { SMALL: 3, MEDIUM: 5, LARGE: 8, XLARGE: 14 },
     IRON: { SMALL: 4, MEDIUM: 10, LARGE: 999, XLARGE: 999 },
-    FROZEN: { SMALL: 5, MEDIUM: 7, LARGE: 10, XLARGE: 20 }
+    FROZEN: { SMALL: 5, MEDIUM: 7, LARGE: 10, XLARGE: 20 },
+    TUNGSTEN: { SMALL: 6, MEDIUM: 10, LARGE: 999, XLARGE: 999 }  // Small/Medium only
 };
 
 // --- Iron Shotgun Burst (Iron ALWAYS spawns as burst) ---
@@ -201,7 +224,8 @@ export const TYPE_SPAWN_WEIGHTS = {
     REGULAR: { base: 100, perLevel: -1, min: 50 },   // Stays very high
     MOLTEN: { base: 0, perLevel: 5, max: 40 },       // Good
     IRON: { base: 0, perLevel: 1, max: 12 },         // Rare
-    FROZEN: { base: 0, perLevel: 4, max: 30 }        // Good
+    FROZEN: { base: 0, perLevel: 4, max: 30 },       // Good
+    TUNGSTEN: { base: 0, perLevel: 4, max: 30 }      // FIXED: Same spawn rate as other specials
 };
 
 // --- Size Spawn Weights (relative chance for each size) ---
@@ -218,17 +242,19 @@ export const FREEBIE_ORB_RADIUS = 12;        // Larger than XP orbs
 export const FREEBIE_DROP_CHANCE_BASE = 0.05; // 5% base chance (1/20) from specials
 export const FREEBIE_DROP_CHANCE_PER_SIZE = 0.00; // No size scaling - flat 5%
 
-// --- Swarm Burst Spawning (clouds of small asteroids) ---
-// REBALANCED: More frequent, bigger swarms for constant engagement
-export const SWARM_BURST_CHANCE = 0.40;           // More swarms! (was 0.30)
-export const SWARM_BURST_COUNT_BASE = 4;          // Bigger starting clusters (was 3)
-export const SWARM_BURST_COUNT_PER_LEVEL = 0.3;   // Faster growth (was 0.25)
-export const SWARM_BURST_COUNT_MAX = 10;          // Bigger late game (was 8)
-export const SWARM_BURST_SPEED_BASE = 1.2;        // Base speed multiplier
-export const SWARM_BURST_SPEED_PER_LEVEL = 0.03;  // Gets faster each level
-export const SWARM_BURST_SPEED_MAX = 2.0;         // Cap speed at 2x
-export const SWARM_BURST_SPREAD = 0.8;            // Wider spread (was 0.6)
-export const SWARM_BURST_MEDIUM_CHANCE_PER_LEVEL = 0.015; // 1.5% per level for medium
+// --- Asteroid Cloud (cohesive swarm entity) ---
+// Clouds keep small asteroids together as a homing unit
+export const CLOUD_SPAWN_CHANCE = 0.35;           // Chance per spawn cycle to spawn a cloud
+export const CLOUD_SIZE_MIN = 6;                  // Minimum asteroids in a cloud
+export const CLOUD_SIZE_MAX = 10;                 // Maximum asteroids in a cloud
+export const CLOUD_SIZE_PER_LEVEL = 0.2;          // +0.2 asteroids per level
+export const CLOUD_COHESION_STRENGTH = 0.08;      // Pull toward cloud center
+export const CLOUD_HOMING_STRENGTH = 0.015;       // Cloud center homes toward player
+export const CLOUD_SPEED_BASE = 1.2;              // Base speed multiplier
+export const CLOUD_SPEED_PER_LEVEL = 0.02;        // Speed scales with level
+export const CLOUD_SPEED_MAX = 1.8;               // Cap speed multiplier
+export const CLOUD_SPAWN_RADIUS = 60;             // Initial spawn spread around center
+export const CLOUD_MAX_SPREAD = 100;              // Max distance member can stray from center
 // ============================================================================
 // DRONES - Autonomous companion orbiters
 // ============================================================================

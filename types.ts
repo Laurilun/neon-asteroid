@@ -10,6 +10,7 @@ export enum EntityType {
   MoltenAsteroid = 'MOLTEN_ASTEROID',
   FrozenAsteroid = 'FROZEN_ASTEROID',
   IronAsteroid = 'IRON_ASTEROID',
+  TungstenAsteroid = 'TUNGSTEN_ASTEROID',
   Bullet = 'BULLET',
   Particle = 'PARTICLE',
   ExpOrb = 'EXP_ORB',
@@ -124,6 +125,16 @@ export interface Drone extends Entity {
   lastShot: number;
   // Physics for organic movement
   targetPos: Vector;
+}
+
+// Asteroid cloud - keeps small asteroids together as a cohesive homing unit
+export interface AsteroidCloud {
+  id: string;
+  pos: Vector;           // Cloud center position
+  vel: Vector;           // Cloud velocity (homes toward player)
+  memberIds: string[];   // IDs of asteroids belonging to this cloud
+  memberOffsets: Vector[]; // Fixed offset from cloud center for each member
+  spawnTime: number;     // Frame when cloud was created
 }
 
 export enum GameState {
