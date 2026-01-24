@@ -60,7 +60,7 @@ export const ASTEROID_BASE = {
     RADIUS: 18,          // Base radius in pixels
     HP: 20,              // Base hit points (was 25 - faster kills!)
     SPEED: 0.8,          // Base movement speed
-    DAMAGE: 15,          // Base collision damage (was 25 - more forgiving)
+    DAMAGE: 25,          // Base collision damage (INCREASED for harder game)
     ROTATION: 0.015,     // Base rotation speed (radians/frame)
     VERTICES: 8,         // Base polygon vertices
     XP_VALUE: 30         // Base XP orb value
@@ -100,11 +100,22 @@ export interface AsteroidTypeConfig {
     auraSizeScale?: number;  // Aura scales with size (0.25 = +25% per size tier)
     auraSlowFactor?: number; // Speed reduction in aura (0.4 = 60% slower, 1.0 = no slow)
     auraDPS?: number;        // Damage per second in aura
-    // Gravity aura (Tungsten)
+    // Gravity aura (Tungsten - disabled)
     hasGravityAura?: boolean;    // Pulls regular asteroids toward it
     gravityRange?: number;       // Base gravity pull radius
     gravitySizeScale?: number;   // Gravity range scales with size
     gravityStrength?: number;    // Pull force on nearby asteroids
+    // Shard shield (Tungsten)
+    hasShardShield?: boolean;    // Spawns orbiting defensive shards
+    shardCountBase?: number;     // Base number of shards
+    shardCountPerSize?: number;  // Additional shards per size tier
+    shardOrbitRadiusMin?: number; // Inner orbit layer
+    shardOrbitRadiusMax?: number; // Outer orbit layer
+    shardOrbitSpeed?: number;    // Orbit speed in radians per frame
+    shardRadiusMin?: number;     // Smallest shard size
+    shardRadiusMax?: number;     // Largest shard size
+    shardCollisionMult?: number; // Collision radius multiplier (blocks more than visual)
+    shardHp?: number;            // HP of each shard
 }
 
 export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
@@ -159,12 +170,19 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
         speedMult: 1.0,           // Normal speed (like regular asteroids)
         hpMult: 8.0,              // Extremely tanky - mini-boss feel
         damageMult: 1.5,          // Moderate contact damage
-        threatMult: 3.0,          // Very high threat - creates dangerous clusters
+        threatMult: 3.0,          // Very high threat
         splits: false,
-        hasGravityAura: true,     // Pulls regular asteroids into orbit
-        gravityRange: 600,        // Large gravity pull range
-        gravitySizeScale: 0.5,    // +50% range per size tier
-        gravityStrength: 0.06,    // Gentle pull (1/3 of previous)
+        hasGravityAura: false,    // No gravity - uses shard shield instead
+        hasShardShield: true,     // Spawns orbiting defensive shards (Gaara-style)
+        shardCountBase: 12,       // Many fragments for dense cloud
+        shardCountPerSize: 5,     // +5 shards per size tier
+        shardOrbitRadiusMin: 30,  // Inner orbit layer (close to asteroid)
+        shardOrbitRadiusMax: 85,  // Outer orbit layer (wide protection)
+        shardOrbitSpeed: 0.018,   // Slow, deliberate orbiting
+        shardRadiusMin: 4,        // Smallest sand particles
+        shardRadiusMax: 12,       // Largest chunks
+        shardCollisionMult: 1.6,  // Collision 60% larger than visual (dense sand blocks more)
+        shardHp: 18,              // Tanky - requires commitment to break through
         color: '#4a3728',         // Dark brown - heavy dense metal
         glowColor: '#6b4f3a'      // Warm brown glow
     }
@@ -196,7 +214,7 @@ export const THREAT_BUDGET_MAX = 60;          // Cap for very late game
 export const TARGET_ASTEROID_MIN = 6;         // Minimum asteroid COUNT (never empty)
 
 // --- Level Scaling ---
-export const LEVEL_HP_SCALING = 0.08;        // +8% HP per level (compounds)
+export const LEVEL_HP_SCALING = 0.12;        // +12% HP per level (compounds) - enemies get tougher
 export const LEVEL_SPEED_SCALING = 0.02;     // +2% speed per level (caps at +100%)
 export const LEVEL_SPEED_CAP = 2.0;          // Max speed multiplier from levels
 
@@ -231,7 +249,7 @@ export const TYPE_SPAWN_WEIGHTS = {
 // --- Size Spawn Weights (relative chance for each size) ---
 // Larger sizes become more common at higher levels
 export const SIZE_SPAWN_WEIGHTS = {
-    SMALL: { base: 60, perLevel: -1.5, min: 25 },
+    SMALL: { base: 30, perLevel: -1, min: 10 },  // Much lower - clouds produce small asteroids
     MEDIUM: { base: 35, perLevel: 0, min: 25, max: 35 },
     LARGE: { base: 5, perLevel: 0.8, max: 25 },
     XLARGE: { base: 0, perLevel: 0.3, max: 8 }  // Reduced (was 0.5, max 15)
@@ -245,16 +263,16 @@ export const FREEBIE_DROP_CHANCE_PER_SIZE = 0.00; // No size scaling - flat 5%
 // --- Asteroid Cloud (cohesive swarm entity) ---
 // Clouds keep small asteroids together as a homing unit
 export const CLOUD_SPAWN_CHANCE = 0.35;           // Chance per spawn cycle to spawn a cloud
-export const CLOUD_SIZE_MIN = 6;                  // Minimum asteroids in a cloud
-export const CLOUD_SIZE_MAX = 10;                 // Maximum asteroids in a cloud
-export const CLOUD_SIZE_PER_LEVEL = 0.2;          // +0.2 asteroids per level
+export const CLOUD_SIZE_MIN = 8;                  // Minimum asteroids in a cloud
+export const CLOUD_SIZE_MAX = 25;                 // Maximum asteroids in a cloud (huge swarms!)
+export const CLOUD_SIZE_PER_LEVEL = 0.8;          // +0.8 asteroids per level (fast scaling)
 export const CLOUD_COHESION_STRENGTH = 0.08;      // Pull toward cloud center
 export const CLOUD_HOMING_STRENGTH = 0.015;       // Cloud center homes toward player
 export const CLOUD_SPEED_BASE = 1.2;              // Base speed multiplier
 export const CLOUD_SPEED_PER_LEVEL = 0.02;        // Speed scales with level
 export const CLOUD_SPEED_MAX = 1.8;               // Cap speed multiplier
-export const CLOUD_SPAWN_RADIUS = 60;             // Initial spawn spread around center
-export const CLOUD_MAX_SPREAD = 100;              // Max distance member can stray from center
+export const CLOUD_SPAWN_RADIUS = 120;            // Big spawn spread to prevent clumping
+export const CLOUD_MAX_SPREAD = 150;              // Max distance member can stray from center
 // ============================================================================
 // DRONES - Autonomous companion orbiters
 // ============================================================================
@@ -303,8 +321,8 @@ export const ORB_MAGNET_RANGE_BASE = 60;        // Base pickup range
 export const ORB_DRIFT_SPEED = 0.5;             // Random drift velocity
 
 // Leveling - REBALANCED for faster, more rewarding progression
-export const XP_BASE_REQ = 400;                 // Slower first level (was 150) - approx 7-8 small orbs
-export const XP_SCALING_FACTOR = 1.08;          // Flatter curve for late game (was 1.12)
+export const XP_BASE_REQ = 150;                 // ~5 small orbs for level 1 (quick first dopamine hit)
+export const XP_SCALING_FACTOR = 1.22;          // Aggressive exponential - later levels are a grind
 
 // ============================================================================
 // UPGRADES - Stat scaling per tier

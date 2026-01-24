@@ -11,6 +11,7 @@ export enum EntityType {
   FrozenAsteroid = 'FROZEN_ASTEROID',
   IronAsteroid = 'IRON_ASTEROID',
   TungstenAsteroid = 'TUNGSTEN_ASTEROID',
+  TungstenShard = 'TUNGSTEN_SHARD',
   Bullet = 'BULLET',
   Particle = 'PARTICLE',
   ExpOrb = 'EXP_ORB',
@@ -83,6 +84,27 @@ export interface Asteroid extends Entity {
   rotationSpeed: number; // Radians per frame
   pulsateOffset: number; // Offset for glow animation
   fractureData?: FractureData; // Pre-computed fracture for splitting (size 2+)
+  shardIds?: string[]; // IDs of orbiting shards (Tungsten only)
+  shardSpawnTimer?: number; // Timer for periodic shard spawning (Tungsten only)
+}
+
+// Orbiting defensive shard around Tungsten asteroid
+export interface TungstenShard extends Entity {
+  parentId: string;         // ID of parent Tungsten asteroid
+  orbitAngle: number;       // Current orbit angle (radians)
+  orbitRadius: number;      // Base distance from parent center
+  orbitSpeed: number;       // Radians per frame
+  hp: number;               // Shard health
+  maxHp: number;
+  collisionRadius: number;  // Collision hitbox (larger than visual for dense blocking)
+  vertices: Vector[];       // Polygon vertices for rendering
+  rotation: number;
+  rotationSpeed: number;
+  hitFlash: number;         // Flash on hit like asteroids
+  // Wobble for natural movement
+  wobblePhase: number;      // Phase offset for sine wave
+  wobbleSpeed: number;      // How fast wobble cycles
+  driftOffset: Vector;      // Random drift from perfect orbit
 }
 
 export interface Bullet extends Entity {

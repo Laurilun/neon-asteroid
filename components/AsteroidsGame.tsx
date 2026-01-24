@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-    Asteroid, Bullet, EntityType, GameState, Particle, Ship, ExpOrb, HullOrb, FreebieOrb, Vector, Drone, UpgradeCategory, UpgradeDef, Entity, FractureData, AsteroidCloud
+    Asteroid, Bullet, EntityType, GameState, Particle, Ship, ExpOrb, HullOrb, FreebieOrb, Vector, Drone, UpgradeCategory, UpgradeDef, Entity, FractureData, AsteroidCloud, TungstenShard
 } from '../types';
 import {
     // Ship
@@ -152,6 +152,7 @@ const AsteroidsGame: React.FC = () => {
     const hullOrbsRef = useRef<HullOrb[]>([]);
     const freebieOrbsRef = useRef<FreebieOrb[]>([]);
     const dronesRef = useRef<Drone[]>([]);
+    const shardsRef = useRef<TungstenShard[]>([]);
     const asteroidCloudsRef = useRef<AsteroidCloud[]>([]);
     const floatingTextsRef = useRef<FloatingText[]>([]);
 
@@ -416,6 +417,11 @@ const AsteroidsGame: React.FC = () => {
 
     // Select size based on level, type, and weights
     const selectAsteroidSize = (currentLevel: number, typeName: AsteroidTypeName): 1 | 2 | 3 | 4 => {
+        // Force LARGE for Tungsten and Frozen (mini-boss types)
+        if (typeName === 'TUNGSTEN' || typeName === 'FROZEN') {
+            return ASTEROID_SIZES.LARGE as 3;
+        }
+
         const sizes: (keyof typeof ASTEROID_SIZES)[] = ['SMALL', 'MEDIUM', 'LARGE', 'XLARGE'];
         const gate = SPAWN_GATES[typeName];
         const weights: number[] = [];
@@ -501,8 +507,13 @@ const AsteroidsGame: React.FC = () => {
         const vel = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
 
         // Create the asteroid
+        const asteroidId = Math.random().toString(36).substr(2, 9);
+
+
+        // Tungsten shards spawned periodically in game loop
+
         asteroidsRef.current.push({
-            id: Math.random().toString(36).substr(2, 9),
+            id: asteroidId,
             type: getEntityType(typeName),
             pos: pos,
             vel: vel,
@@ -517,7 +528,9 @@ const AsteroidsGame: React.FC = () => {
             hitFlash: 0,
             rotation: Math.random() * Math.PI * 2,
             rotationSpeed: randomRange(-props.rotation, props.rotation),
-            pulsateOffset: Math.random() * Math.PI * 2
+            pulsateOffset: Math.random() * Math.PI * 2,
+            shardIds: [],
+            shardSpawnTimer: 0 // Initialize timer for periodic spawning
         });
     };
 
@@ -1792,6 +1805,123 @@ const AsteroidsGame: React.FC = () => {
                 asteroidCloudsRef.current = asteroidCloudsRef.current.filter(c => c.memberIds.length > 0);
             }
 
+            // --- TUNGSTEN SPAWNING LOGIC ---
+            asteroidsRef.current.forEach(a => {
+                if (a.type === EntityType.TungstenAsteroid && !a.toBeRemoved) {
+                    const typeConfig = ASTEROID_TYPES.TUNGSTEN;
+                    if (typeConfig.hasShardShield) {
+                        const sizeCat = a.sizeCategory;
+                        const maxShards = (typeConfig.shardCountBase || 4) + (sizeCat - 1) * (typeConfig.shardCountPerSize || 1);
+                        const currentCount = a.shardIds ? a.shardIds.length : 0;
+
+                        // Spawn new shards if below max count
+                        if (currentCount < maxShards) {
+                            if (a.shardSpawnTimer === undefined) a.shardSpawnTimer = 0;
+                            a.shardSpawnTimer++;
+
+                            // Spawn rate: 45 frames (0.75s) per shard
+                            if (a.shardSpawnTimer > 45) {
+                                const shardId = Math.random().toString(36).substr(2, 9);
+                                if (!a.shardIds) a.shardIds = [];
+                                a.shardIds.push(shardId);
+
+                                // Random orbit radius within range for varied layers
+                                const minOrbit = (typeConfig.shardOrbitRadiusMin || 30) + sizeCat * 5;
+                                const maxOrbit = (typeConfig.shardOrbitRadiusMax || 85) + sizeCat * 12;
+                                const orbitRadius = randomRange(minOrbit, maxOrbit);
+
+                                // Varied shard sizes for organic cloud feel
+                                const minSize = typeConfig.shardRadiusMin || 4;
+                                const maxSize = typeConfig.shardRadiusMax || 12;
+                                const shardRadius = randomRange(minSize, maxSize);
+
+                                // Collision larger than visual (dense sand blocks more)
+                                const collisionMult = typeConfig.shardCollisionMult || 1.6;
+                                const collisionRadius = shardRadius * collisionMult;
+
+                                const shardHp = typeConfig.shardHp || 18;
+                                const shardOrbitSpeed = typeConfig.shardOrbitSpeed || 0.018;
+                                const newOrbitAngle = Math.random() * Math.PI * 2;
+
+                                shardsRef.current.push({
+                                    id: shardId,
+                                    type: EntityType.TungstenShard,
+                                    parentId: a.id,
+                                    pos: {
+                                        x: a.pos.x + Math.cos(newOrbitAngle) * orbitRadius,
+                                        y: a.pos.y + Math.sin(newOrbitAngle) * orbitRadius
+                                    },
+                                    vel: { x: 0, y: 0 },
+                                    radius: shardRadius,
+                                    collisionRadius: collisionRadius, // Larger hitbox for dense blocking
+                                    angle: newOrbitAngle,
+                                    color: typeConfig.color,
+                                    toBeRemoved: false,
+                                    orbitAngle: newOrbitAngle,
+                                    orbitRadius: orbitRadius,
+                                    orbitSpeed: shardOrbitSpeed * (Math.random() > 0.5 ? 1 : -1) * randomRange(0.5, 1.5),
+                                    hp: shardHp,
+                                    maxHp: shardHp,
+                                    vertices: generatePolygon(shardRadius, 3 + Math.floor(Math.random() * 4), 2), // 3-6 sides
+                                    rotation: Math.random() * Math.PI * 2,
+                                    rotationSpeed: randomRange(-0.15, 0.15), // Faster chaotic spin
+                                    hitFlash: 0,
+                                    wobblePhase: Math.random() * Math.PI * 2,
+                                    wobbleSpeed: randomRange(0.04, 0.1), // More chaotic wobble
+                                    driftOffset: { x: randomRange(-15, 15), y: randomRange(-15, 15) } // Wider drift
+                                });
+
+                                // Reset timer
+                                a.shardSpawnTimer = 0;
+                                spawnParticles(a.pos, typeConfig.color, 3, 2);
+                            }
+                        }
+                    }
+                }
+            });
+
+            // --- TUNGSTEN SHARD PHYSICS ---
+            // Shards orbit around their parent Tungsten asteroid with natural wobble
+            shardsRef.current.forEach(shard => {
+                if (shard.toBeRemoved) return;
+
+                // Find parent asteroid
+                const parent = asteroidsRef.current.find(a => a.id === shard.parentId && !a.toBeRemoved);
+                if (!parent) {
+                    // Parent destroyed - remove shard
+                    shard.toBeRemoved = true;
+                    return;
+                }
+
+                // Update orbit angle
+                shard.orbitAngle += shard.orbitSpeed;
+
+                // Update wobble phase for organic movement
+                shard.wobblePhase += shard.wobbleSpeed;
+                const wobbleOffset = Math.sin(shard.wobblePhase) * 6; // ±6px wobble
+
+                // Position shard in orbit around parent with wobble and drift
+                const effectiveRadius = shard.orbitRadius + wobbleOffset;
+                shard.pos.x = parent.pos.x + Math.cos(shard.orbitAngle) * effectiveRadius + shard.driftOffset.x;
+                shard.pos.y = parent.pos.y + Math.sin(shard.orbitAngle) * effectiveRadius + shard.driftOffset.y;
+
+                // Slowly drift the offset for even more organic feel
+                shard.driftOffset.x += randomRange(-0.1, 0.1);
+                shard.driftOffset.y += randomRange(-0.1, 0.1);
+                // Clamp drift
+                shard.driftOffset.x = Math.max(-12, Math.min(12, shard.driftOffset.x));
+                shard.driftOffset.y = Math.max(-12, Math.min(12, shard.driftOffset.y));
+
+                // Rotate shard
+                shard.rotation += shard.rotationSpeed;
+
+                // Decay hit flash
+                if (shard.hitFlash > 0) shard.hitFlash--;
+            });
+
+            // Clean up removed shards
+            shardsRef.current = shardsRef.current.filter(s => !s.toBeRemoved);
+
             const updateOrb = (o: ExpOrb | HullOrb, type: 'EXP' | 'HULL') => {
                 if (gameState !== GameState.LEVEL_UP) {
                     if (gameState === GameState.PLAYING && ship && !ship.toBeRemoved) {
@@ -1894,6 +2024,48 @@ const AsteroidsGame: React.FC = () => {
             if (gameState === GameState.PLAYING) {
                 bulletsRef.current.forEach(b => {
                     if (b.toBeRemoved) return;
+
+                    // Check shard collisions first (shards block bullets from hitting Tungsten)
+                    for (const shard of shardsRef.current) {
+                        if (shard.toBeRemoved || b.toBeRemoved) continue;
+                        if (dist(b.pos, shard.pos) < shard.collisionRadius + b.radius) {
+                            // Hit shard - same feedback as asteroids
+                            shard.hp -= b.damage;
+                            shard.hitFlash = HIT_FLASH_FRAMES;
+                            spawnParticles(b.pos, ASTEROID_TYPES.TUNGSTEN.color, 4, 3);
+
+                            // Show damage number if enabled
+                            if (showDamageNumbersRef.current) {
+                                const dmgText = Math.round(b.damage).toString();
+                                const offsetX = (Math.random() - 0.5) * 16;
+                                const offsetY = (Math.random() - 0.5) * 8;
+                                spawnFloatingText(
+                                    { x: b.pos.x + offsetX, y: b.pos.y + offsetY },
+                                    dmgText,
+                                    '#8b7355', // Brown for shard damage
+                                    11
+                                );
+                            }
+
+                            if (shard.hp <= 0) {
+                                shard.toBeRemoved = true;
+                                spawnParticles(shard.pos, ASTEROID_TYPES.TUNGSTEN.color, 8, 5);
+                                screenShakeRef.current = Math.max(screenShakeRef.current, 3);
+
+                                // Remove shard from parent's shardIds
+                                const parent = asteroidsRef.current.find(a => a.id === shard.parentId);
+                                if (parent && parent.shardIds) {
+                                    parent.shardIds = parent.shardIds.filter(id => id !== shard.id);
+                                }
+                            }
+
+                            b.toBeRemoved = true;
+                            break; // Bullet consumed by shard
+                        }
+                    }
+
+                    if (b.toBeRemoved) return;
+
                     asteroidsRef.current.forEach(a => {
                         if (a.toBeRemoved) return;
                         // Skip collision with immediate source asteroid (last in chain)
@@ -2464,6 +2636,57 @@ const AsteroidsGame: React.FC = () => {
                 }
 
                 // (Fracture line rendering removed - the position offset + shockwave gives better breaking feel)
+
+                ctx.restore();
+            });
+            ctx.shadowBlur = 0;
+
+            // --- TUNGSTEN SHARDS ---
+            // Draw orbiting defensive shards around Tungsten asteroids
+            shardsRef.current.forEach(shard => {
+                if (shard.toBeRemoved) return;
+
+                ctx.save();
+                ctx.translate(shard.pos.x, shard.pos.y);
+                ctx.rotate(shard.rotation);
+
+                // Brown glow effect (brighter when hit)
+                ctx.shadowColor = shard.hitFlash > 0 ? '#ffffff' : (ASTEROID_TYPES.TUNGSTEN.glowColor || '#6b4f3a');
+                ctx.shadowBlur = shard.hitFlash > 0 ? 15 : 8;
+
+                // Draw shard polygon
+                ctx.beginPath();
+                if (shard.vertices.length > 0) {
+                    ctx.moveTo(shard.vertices[0].x, shard.vertices[0].y);
+                    for (let i = 1; i < shard.vertices.length; i++) {
+                        ctx.lineTo(shard.vertices[i].x, shard.vertices[i].y);
+                    }
+                }
+                ctx.closePath();
+
+                // Fill (white flash or dark brown)
+                if (shard.hitFlash > 0) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.globalAlpha = 0.8;
+                } else {
+                    ctx.fillStyle = '#050505';
+                    ctx.globalAlpha = 1.0;
+                }
+                ctx.fill();
+
+                // Brown stroke (white when flashing)
+                ctx.globalAlpha = 1.0;
+                ctx.strokeStyle = shard.hitFlash > 0 ? '#ffffff' : ASTEROID_TYPES.TUNGSTEN.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Inner highlight (skip when flashing)
+                if (shard.hitFlash <= 0) {
+                    ctx.strokeStyle = '#8b7355';
+                    ctx.lineWidth = 1;
+                    ctx.globalAlpha = 0.7;
+                    ctx.stroke();
+                }
 
                 ctx.restore();
             });
