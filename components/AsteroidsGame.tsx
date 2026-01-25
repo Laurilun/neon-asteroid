@@ -18,12 +18,13 @@ import {
     SPAWN_INTERVAL_BASE, SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_DECAY,
     THREAT_BUDGET_BASE, THREAT_BUDGET_PER_LEVEL, THREAT_BUDGET_MAX, TARGET_ASTEROID_MIN,
     LEVEL_HP_SCALING, LEVEL_SPEED_SCALING, LEVEL_SPEED_CAP,
+    LEVEL_DAMAGE_SCALING, LEVEL_DAMAGE_CAP,
     SPAWN_GATES, TYPE_SPAWN_WEIGHTS, SIZE_SPAWN_WEIGHTS,
     // Asteroid Cloud (cohesive swarm entity)
     CLOUD_SPAWN_CHANCE, CLOUD_SIZE_MIN, CLOUD_SIZE_MAX, CLOUD_SIZE_PER_LEVEL,
     CLOUD_COHESION_STRENGTH, CLOUD_HOMING_STRENGTH,
     CLOUD_SPEED_BASE, CLOUD_SPEED_PER_LEVEL, CLOUD_SPEED_MAX,
-    CLOUD_SPAWN_RADIUS, CLOUD_MAX_SPREAD,
+    CLOUD_SPAWN_RADIUS, CLOUD_MAX_SPREAD, CLOUD_SPAWN_COOLDOWN_FRAMES,
     // Iron Shotgun Burst
     IRON_BURST_COUNT_BASE, IRON_BURST_COUNT_PER_LEVEL, IRON_BURST_COUNT_MAX, IRON_BURST_SPEED_MULT, IRON_BURST_SPREAD,
     // Drones
@@ -36,6 +37,8 @@ import {
     HULL_ORB_VALUE, HULL_ORB_RADIUS, HULL_DROP_CHANCE,
     ORB_MAGNET_RANGE_BASE, ORB_DRIFT_SPEED, XP_BASE_REQ, XP_SCALING_FACTOR,
     FREEBIE_ORB_RADIUS, FREEBIE_DROP_CHANCE_BASE, FREEBIE_DROP_CHANCE_PER_SIZE,
+    // Tungsten Shards
+    TUNGSTEN_SHARD_TOUCH_DPS, TUNGSTEN_SHARD_PUSH_FORCE,
     // Upgrades
     UPGRADE_ENGINE_MULT, UPGRADE_REGEN_PER_TIER, UPGRADE_HULL_MULT,
     UPGRADE_FIRE_RATE_SPEED_MULT, UPGRADE_DAMAGE_MULT_COMPOUND, UPGRADE_RANGE_MULT, // Pro Balance
@@ -166,6 +169,7 @@ const AsteroidsGame: React.FC = () => {
     const moltenTimerRef = useRef<number>(0);
     const frozenTimerRef = useRef<number>(0);
     const ironTimerRef = useRef<number>(0);
+    const cloudCooldownRef = useRef<number>(0);
 
     // Staggered spawn queue for "pew pew pew" cloud effect
     interface PendingSpawn {
@@ -254,7 +258,7 @@ const AsteroidsGame: React.FC = () => {
 
         let target = XP_BASE_REQ;
         for (let i = 1; i < initialLevel; i++) {
-            target = Math.floor(target * XP_SCALING_FACTOR + 1000);
+            target = Math.floor(target * XP_SCALING_FACTOR);
         }
         xpTargetRef.current = target;
 
@@ -417,11 +421,9 @@ const AsteroidsGame: React.FC = () => {
 
     // Select size based on level, type, and weights
     const selectAsteroidSize = (currentLevel: number, typeName: AsteroidTypeName): 1 | 2 | 3 | 4 => {
-        // Force LARGE for Tungsten and Frozen (mini-boss types)
-        if (typeName === 'TUNGSTEN' || typeName === 'FROZEN') {
-            return ASTEROID_SIZES.LARGE as 3;
+        if (typeName === 'TUNGSTEN') {
+            return (Math.random() < 0.65 ? ASTEROID_SIZES.MEDIUM : ASTEROID_SIZES.LARGE) as 2 | 3;
         }
-
         const sizes: (keyof typeof ASTEROID_SIZES)[] = ['SMALL', 'MEDIUM', 'LARGE', 'XLARGE'];
         const gate = SPAWN_GATES[typeName];
         const weights: number[] = [];
@@ -873,17 +875,13 @@ const AsteroidsGame: React.FC = () => {
             }
         }
 
-        // Loot
         if (Math.random() < HULL_DROP_CHANCE) spawnHullOrb(a.pos);
 
-        // Loot
-        if (Math.random() < HULL_DROP_CHANCE) spawnHullOrb(a.pos);
-
-        // XP Orbs - bigger special asteroids drop more super XP
+        // XP Orbs - specials drop super XP, but capped for pacing
         if (isSpecial) {
-            // Size-based super XP count: small=1-2, medium=2-3, large=3-4, xlarge=4-5
-            const baseDrops = a.sizeCategory;
-            const dropCount = baseDrops + (Math.random() < 0.5 ? 1 : 0);
+            // Size-based super XP count: small=1, medium=1-2, large=2-3, xlarge=2-3
+            const baseDrops = Math.max(1, Math.floor(a.sizeCategory * 0.5));
+            const dropCount = Math.min(3, baseDrops + (Math.random() < 0.3 ? 1 : 0));
             for (let i = 0; i < dropCount; i++) {
                 spawnExpOrb({ x: a.pos.x + randomRange(-15, 15), y: a.pos.y + randomRange(-15, 15) }, 'SUPER');
             }
@@ -1207,11 +1205,11 @@ const AsteroidsGame: React.FC = () => {
                     // Calculate current threat on screen
                     const calculateThreat = (a: Asteroid): number => {
                         const sizeMult = SIZE_MULTIPLIERS[a.sizeCategory as 1 | 2 | 3 | 4];
-                        let typeMult = 1.0;
+                        let typeMult = ASTEROID_TYPES.REGULAR.threatMult;
                         if (a.type === EntityType.MoltenAsteroid) typeMult = ASTEROID_TYPES.MOLTEN.threatMult;
                         else if (a.type === EntityType.IronAsteroid) typeMult = ASTEROID_TYPES.IRON.threatMult;
                         else if (a.type === EntityType.FrozenAsteroid) typeMult = ASTEROID_TYPES.FROZEN.threatMult;
-                        else typeMult = ASTEROID_TYPES.REGULAR.threatMult;
+                        else if (a.type === EntityType.TungstenAsteroid) typeMult = ASTEROID_TYPES.TUNGSTEN.threatMult;
                         return sizeMult.threat * typeMult;
                     };
 
@@ -1250,17 +1248,21 @@ const AsteroidsGame: React.FC = () => {
                             spawnIronBurst(cw, ch, currentLevel);
                             spawnTimerRef.current = spawnInterval * 1.5;
                         } else {
-                            // Normal spawn
-                            spawnAsteroid(cw, ch, currentLevel);
-                            spawnTimerRef.current = spawnInterval + randomRange(-10, 10);
+                            const canSpawnCloud = currentLevel >= 2 && cloudCooldownRef.current <= 0 && Math.random() < CLOUD_SPAWN_CHANCE;
 
-                            // Asteroid cloud for cohesive swarm engagement
-                            if (Math.random() < CLOUD_SPAWN_CHANCE && currentLevel >= 2) {
+                            // Spawn cloud OR single asteroid (not both)
+                            if (canSpawnCloud) {
                                 spawnCloud(cw, ch, currentLevel);
+                                cloudCooldownRef.current = CLOUD_SPAWN_COOLDOWN_FRAMES;
+                            } else {
+                                spawnAsteroid(cw, ch, currentLevel);
                             }
+
+                            spawnTimerRef.current = spawnInterval + randomRange(-10, 10);
                         }
                     }
                     if (spawnTimerRef.current > 0) spawnTimerRef.current--;
+                    if (cloudCooldownRef.current > 0) cloudCooldownRef.current--;
                 }
 
                 // --- PROCESS STAGGERED SPAWNS (pew pew pew effect) ---
@@ -1365,9 +1367,11 @@ const AsteroidsGame: React.FC = () => {
                         const auraRange = (typeConfig.auraRange * sizeBonus) + a.radius;
 
                         if (dist(ship.pos, a.pos) < auraRange) {
-                            // Apply aura damage
-                            const auraDPS = typeConfig.auraDPS || 10;
-                            ship.hull -= auraDPS / 60;
+                            // Apply aura damage (respect invulnerability window)
+                            if (Date.now() > ship.invulnerableUntil) {
+                                const auraDPS = typeConfig.auraDPS || 10;
+                                ship.hull -= auraDPS / 60;
+                            }
 
                             if (auraType === 'frozen') {
                                 isInFrozenAura = true;
@@ -1652,13 +1656,16 @@ const AsteroidsGame: React.FC = () => {
                 if (gameState !== GameState.LEVEL_UP) {
                     // MOLTEN HOMING: Gently track player, but decay so it drifts off
                     if (a.type === EntityType.MoltenAsteroid && ship && !ship.toBeRemoved) {
-                        const HOMING_STRENGTH = 0.015; // Very gentle tracking
+                        // Gentle steering toward player while preserving drift
+                        const distToPlayer = dist(a.pos, ship.pos);
+                        const baseHoming = 0.006;
+                        const homingStrength = Math.min(baseHoming, (distToPlayer / 800) * baseHoming);
                         const angleToPlayer = Math.atan2(ship.pos.y - a.pos.y, ship.pos.x - a.pos.x);
                         const speed = Math.sqrt(a.vel.x * a.vel.x + a.vel.y * a.vel.y);
 
                         // Blend current velocity toward player direction
-                        a.vel.x += Math.cos(angleToPlayer) * HOMING_STRENGTH;
-                        a.vel.y += Math.sin(angleToPlayer) * HOMING_STRENGTH;
+                        a.vel.x += Math.cos(angleToPlayer) * homingStrength;
+                        a.vel.y += Math.sin(angleToPlayer) * homingStrength;
 
                         // Normalize to maintain original speed (prevent acceleration)
                         const newSpeed = Math.sqrt(a.vel.x * a.vel.x + a.vel.y * a.vel.y);
@@ -1862,7 +1869,7 @@ const AsteroidsGame: React.FC = () => {
                                     orbitSpeed: shardOrbitSpeed * (Math.random() > 0.5 ? 1 : -1) * randomRange(0.5, 1.5),
                                     hp: shardHp,
                                     maxHp: shardHp,
-                                    vertices: generatePolygon(shardRadius, 3 + Math.floor(Math.random() * 4), 2), // 3-6 sides
+                                    vertices: generatePolygon(shardRadius, 5 + Math.floor(Math.random() * 3), 2), // 5-7 sides
                                     rotation: Math.random() * Math.PI * 2,
                                     rotationSpeed: randomRange(-0.15, 0.15), // Faster chaotic spin
                                     hitFlash: 0,
@@ -2071,7 +2078,7 @@ const AsteroidsGame: React.FC = () => {
                         // Skip collision with immediate source asteroid (last in chain)
                         const lastInChain = b.hitChainIds?.[b.hitChainIds.length - 1];
                         if (lastInChain === a.id) return;
-                        if (dist(b.pos, a.pos) < a.radius) {
+                        if (dist(b.pos, a.pos) < a.radius + b.radius) {
                             a.hp -= b.damage;
                             a.hitFlash = HIT_FLASH_FRAMES;
                             spawnParticles(b.pos, b.color, 2, 4);
@@ -2186,6 +2193,18 @@ const AsteroidsGame: React.FC = () => {
                     hullOrbsRef.current.forEach(o => { if (!o.toBeRemoved && dist(ship.pos, o.pos) < ship.radius + o.radius) collectOrb(o, 'HULL'); });
 
                     if (Date.now() > ship.invulnerableUntil) {
+                        // Tungsten shard touch: gentle push + chip damage
+                        shardsRef.current.forEach(shard => {
+                            if (shard.toBeRemoved) return;
+                            const touchRange = shard.collisionRadius + ship.radius * 0.6;
+                            if (dist(ship.pos, shard.pos) < touchRange) {
+                                const angle = Math.atan2(ship.pos.y - shard.pos.y, ship.pos.x - shard.pos.x);
+                                ship.vel.x += Math.cos(angle) * TUNGSTEN_SHARD_PUSH_FORCE;
+                                ship.vel.y += Math.sin(angle) * TUNGSTEN_SHARD_PUSH_FORCE;
+                                ship.hull -= TUNGSTEN_SHARD_TOUCH_DPS / 60;
+                            }
+                        });
+
                         asteroidsRef.current.forEach(a => {
                             if (a.toBeRemoved) return;
                             if (checkShipCollision(ship, a)) {
@@ -2195,6 +2214,7 @@ const AsteroidsGame: React.FC = () => {
                                         case EntityType.MoltenAsteroid: return 'MOLTEN';
                                         case EntityType.IronAsteroid: return 'IRON';
                                         case EntityType.FrozenAsteroid: return 'FROZEN';
+                                        case EntityType.TungstenAsteroid: return 'TUNGSTEN';
                                         default: return 'REGULAR';
                                     }
                                 };
@@ -2202,7 +2222,8 @@ const AsteroidsGame: React.FC = () => {
                                 const asteroidTypeConfig = ASTEROID_TYPES[asteroidTypeName];
                                 const sizeMult = SIZE_MULTIPLIERS[a.sizeCategory as 1 | 2 | 3 | 4];
 
-                                const baseDamage = ASTEROID_BASE.DAMAGE * sizeMult.damage * asteroidTypeConfig.damageMult;
+                                const levelDamageMult = Math.min(LEVEL_DAMAGE_CAP, 1 + (levelRef.current - 1) * LEVEL_DAMAGE_SCALING);
+                                const baseDamage = ASTEROID_BASE.DAMAGE * sizeMult.damage * asteroidTypeConfig.damageMult * levelDamageMult;
                                 const damage = Math.round(baseDamage);
 
                                 // Base knockback + type-specific multiplier (Iron = massive pushback!)

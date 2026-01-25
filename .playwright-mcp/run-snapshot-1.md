@@ -1,0 +1,11 @@
+- generic [ref=e4]:
+  - generic:
+    - generic: "000000"
+    - generic: LVL 1
+    - generic:
+      - generic:
+        - generic:
+          - generic: 100 / 100
+        - generic: +0.0/s
+      - generic:
+        - generic: 0 / 240

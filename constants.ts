@@ -58,9 +58,9 @@ export const ASTEROID_SIZES = {
 // --- Base Values (before multipliers) ---
 export const ASTEROID_BASE = {
     RADIUS: 18,          // Base radius in pixels
-    HP: 20,              // Base hit points (was 25 - faster kills!)
+    HP: 22,              // Base hit points
     SPEED: 0.8,          // Base movement speed
-    DAMAGE: 25,          // Base collision damage (INCREASED for harder game)
+    DAMAGE: 30,          // Base collision damage
     ROTATION: 0.015,     // Base rotation speed (radians/frame)
     VERTICES: 8,         // Base polygon vertices
     XP_VALUE: 30         // Base XP orb value
@@ -74,10 +74,10 @@ export const SOFT_DECLUMP_FORCE = 0.08;         // Push strength when too close
 // REBALANCED: Lower HP for faster kills, lower damage for forgiveness
 // threat = base threat value for director system
 export const SIZE_MULTIPLIERS = {
-    [ASTEROID_SIZES.SMALL]: { radius: 1.0, hp: 0.8, speed: 1.1, damage: 0.5, vertices: 0, xp: 1.0, threat: 1 },
-    [ASTEROID_SIZES.MEDIUM]: { radius: 1.9, hp: 2.0, speed: 1.0, damage: 0.8, vertices: 2, xp: 1.5, threat: 2 },
-    [ASTEROID_SIZES.LARGE]: { radius: 3.5, hp: 4.5, speed: 0.9, damage: 1.2, vertices: 4, xp: 3.0, threat: 4 },
-    [ASTEROID_SIZES.XLARGE]: { radius: 5.5, hp: 10.0, speed: 0.75, damage: 2.0, vertices: 6, xp: 6.0, threat: 8 }
+    [ASTEROID_SIZES.SMALL]: { radius: 1.0, hp: 1.0, speed: 1.1, damage: 0.45, vertices: 0, xp: 1.0, threat: 1 },
+    [ASTEROID_SIZES.MEDIUM]: { radius: 1.9, hp: 2.2, speed: 1.0, damage: 0.75, vertices: 2, xp: 1.5, threat: 2 },
+    [ASTEROID_SIZES.LARGE]: { radius: 3.5, hp: 4.5, speed: 0.95, damage: 1.1, vertices: 4, xp: 3.0, threat: 4 },
+    [ASTEROID_SIZES.XLARGE]: { radius: 5.5, hp: 9.5, speed: 0.8, damage: 1.8, vertices: 6, xp: 6.0, threat: 8 }
 };
 
 // --- Type Definitions ---
@@ -128,24 +128,24 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
         color: '#9ca3af'
     },
     MOLTEN: {
-        speedMult: 1.3,           // Slower but CHASES (was 2.0)
-        hpMult: 2.5,              // Tanky
-        damageMult: 3.0,          // Deadly but survivable (was 5.0)
+        speedMult: 1.25,          // Slower but CHASES
+        hpMult: 2.2,              // Tanky
+        damageMult: 3.0,          // Deadly but survivable
         threatMult: 2.0,          // HIGH threat - dangerous aura!
         splits: false,
         hasAura: true,            // Burn aura!
-        auraRange: 50,            // Slightly larger burn ring (was 40)
+        auraRange: 45,            // Burn ring
         auraSizeScale: 0.3,       // +30% range per size tier
-        auraDPS: 40,              // Still punishing (was 50)
+        auraDPS: 40,              // Still punishing
         auraSlowFactor: 1.0,      // No slow effect
         color: '#ef4444',
         glowColor: '#f97316'
     },
     IRON: {
-        speedMult: 2.8,           // Fast but reactable (was 3.5)
-        hpMult: 0.8,              // Low HP - squishy
-        damageMult: 1.0,          // Low damage - knockback is the punishment (was 1.5)
-        knockbackMult: 4.0,       // MASSIVE knockback - KEPT for character!
+        speedMult: 2.6,           // Fast but reactable
+        hpMult: 0.85,             // Low HP - squishy
+        damageMult: 0.9,          // Low damage - knockback is the punishment
+        knockbackMult: 4.5,       // MASSIVE knockback - KEPT for character!
         threatMult: 1.5,          // Moderate threat - disruptor
         splits: false,
         homingBurst: true,        // Launches directly at player
@@ -153,24 +153,24 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
         glowColor: '#a16207'
     },
     FROZEN: {
-        speedMult: 0.4,           // Slow moving
-        hpMult: 3.5,              // Tanky not sponge (was 5.0)
+        speedMult: 0.45,          // Slow moving
+        hpMult: 3.0,              // Tanky not sponge
         damageMult: 1.0,          // Normal contact damage
         threatMult: 1.8,          // High threat - zoning control
         splits: false,
         hasAura: true,
-        auraRange: 120,           // Base aura (scales with size)
+        auraRange: 110,           // Base aura (scales with size)
         auraSizeScale: 0.25,      // +25% range per size tier
-        auraSlowFactor: 0.5,      // Slightly less punishing (was 0.4)
-        auraDPS: 15,
+        auraSlowFactor: 0.55,     // Slightly less punishing
+        auraDPS: 18,
         color: '#06b6d4',
         glowColor: '#22d3ee'
     },
     TUNGSTEN: {
         speedMult: 1.0,           // Normal speed (like regular asteroids)
-        hpMult: 8.0,              // Extremely tanky - mini-boss feel
-        damageMult: 1.5,          // Moderate contact damage
-        threatMult: 3.0,          // Very high threat
+        hpMult: 7.0,              // Extremely tanky - mini-boss feel
+        damageMult: 1.35,         // Moderate contact damage
+        threatMult: 2.6,          // Very high threat
         splits: false,
         hasGravityAura: false,    // No gravity - uses shard shield instead
         hasShardShield: true,     // Spawns orbiting defensive shards (Gaara-style)
@@ -201,22 +201,24 @@ export const ASTEROID_SPLIT_OFFSET_RATIO = 0.5;
 // Designed to scale smoothly from level 1 to 100+ without hard caps
 
 // --- Spawn Timing ---
-export const SPAWN_INTERVAL_BASE = 60;        // Faster initial spawns (was 90)
-export const SPAWN_INTERVAL_MIN = 15;         // Keeps pressure late (was 20)
-export const SPAWN_INTERVAL_DECAY = 0.96;     // Slower acceleration (was 0.97)
+export const SPAWN_INTERVAL_BASE = 75;        // Slower early pressure
+export const SPAWN_INTERVAL_MIN = 20;         // Keeps pressure late
+export const SPAWN_INTERVAL_DECAY = 0.97;     // Smoother acceleration
 
 // --- Screen Density: THREAT-WEIGHTED SYSTEM ---
 // Instead of counting asteroids, we count "threat budget"
 // Threat = SIZE_MULTIPLIERS.threat × ASTEROID_TYPES.threatMult
-export const THREAT_BUDGET_BASE = 15;         // Starting threat budget
+export const THREAT_BUDGET_BASE = 12;         // Starting threat budget
 export const THREAT_BUDGET_PER_LEVEL = 1.5;   // +1.5 threat per level
-export const THREAT_BUDGET_MAX = 60;          // Cap for very late game
-export const TARGET_ASTEROID_MIN = 6;         // Minimum asteroid COUNT (never empty)
+export const THREAT_BUDGET_MAX = 70;          // Cap for very late game
+export const TARGET_ASTEROID_MIN = 4;         // Minimum asteroid COUNT (never empty)
 
 // --- Level Scaling ---
-export const LEVEL_HP_SCALING = 0.12;        // +12% HP per level (compounds) - enemies get tougher
+export const LEVEL_HP_SCALING = 0.12;        // +12% HP per level (compounds)
 export const LEVEL_SPEED_SCALING = 0.02;     // +2% speed per level (caps at +100%)
 export const LEVEL_SPEED_CAP = 2.0;          // Max speed multiplier from levels
+export const LEVEL_DAMAGE_SCALING = 0.02;    // +2% damage per level (caps at +100%)
+export const LEVEL_DAMAGE_CAP = 2.0;         // Max damage multiplier from levels
 
 // --- Type Spawn Gates (level required for each type/size combo) ---
 // REBALANCED: Slightly later gates for breathing room (Vampire Survivors style)
@@ -231,48 +233,49 @@ export const SPAWN_GATES = {
 // --- Iron Shotgun Burst (Iron ALWAYS spawns as burst) ---
 // Count scales with level in spawnIronBurst function
 export const IRON_BURST_COUNT_BASE = 2;       // Base count at level 1
-export const IRON_BURST_COUNT_PER_LEVEL = 0.2; // +0.2 per level (so L10 = 4, L20 = 6)
-export const IRON_BURST_COUNT_MAX = 7;        // Cap for very high levels
-export const IRON_BURST_SPEED_MULT = 1.8;     // Fast and dangerous
-export const IRON_BURST_SPREAD = 0.25;        // Tight spread aimed at player
+export const IRON_BURST_COUNT_PER_LEVEL = 0.15; // +0.15 per level (L10 = 3, L20 = 5)
+export const IRON_BURST_COUNT_MAX = 6;        // Cap for very high levels
+export const IRON_BURST_SPEED_MULT = 2.0;     // Faster, more threatening
+export const IRON_BURST_SPREAD = 0.2;         // Tighter spread toward player
 
 // --- Type Spawn Weights (relative chance to spawn each type) ---
 // Higher = more common. Weights scale with level for variety.
 export const TYPE_SPAWN_WEIGHTS = {
-    REGULAR: { base: 100, perLevel: -1, min: 50 },   // Stays very high
-    MOLTEN: { base: 0, perLevel: 5, max: 40 },       // Good
-    IRON: { base: 0, perLevel: 1, max: 12 },         // Rare
-    FROZEN: { base: 0, perLevel: 4, max: 30 },       // Good
-    TUNGSTEN: { base: 0, perLevel: 4, max: 30 }      // FIXED: Same spawn rate as other specials
+    REGULAR: { base: 110, perLevel: -1.2, min: 55 }, // Stays dominant
+    MOLTEN: { base: 0, perLevel: 3.2, max: 34 },     // Steady threat
+    IRON: { base: 0, perLevel: 0.9, max: 12 },       // Rare spikes
+    FROZEN: { base: 0, perLevel: 3.1, max: 28 },     // Zoning threat
+    TUNGSTEN: { base: 0, perLevel: 2.4, max: 24 }    // Mini-boss pacing
 };
 
 // --- Size Spawn Weights (relative chance for each size) ---
 // Larger sizes become more common at higher levels
 export const SIZE_SPAWN_WEIGHTS = {
-    SMALL: { base: 30, perLevel: -1, min: 10 },  // Much lower - clouds produce small asteroids
-    MEDIUM: { base: 35, perLevel: 0, min: 25, max: 35 },
-    LARGE: { base: 5, perLevel: 0.8, max: 25 },
-    XLARGE: { base: 0, perLevel: 0.3, max: 8 }  // Reduced (was 0.5, max 15)
+    SMALL: { base: 35, perLevel: -0.8, min: 12 },
+    MEDIUM: { base: 40, perLevel: 0, min: 28, max: 40 },
+    LARGE: { base: 4, perLevel: 0.7, max: 20 },
+    XLARGE: { base: 0, perLevel: 0.28, max: 7 }
 };
 
 // --- Freebie Upgrade Orb (rare drop from special asteroids) ---
 export const FREEBIE_ORB_RADIUS = 12;        // Larger than XP orbs
-export const FREEBIE_DROP_CHANCE_BASE = 0.05; // 5% base chance (1/20) from specials
+export const FREEBIE_DROP_CHANCE_BASE = 0.03; // 3% base chance from specials
 export const FREEBIE_DROP_CHANCE_PER_SIZE = 0.00; // No size scaling - flat 5%
 
 // --- Asteroid Cloud (cohesive swarm entity) ---
 // Clouds keep small asteroids together as a homing unit
-export const CLOUD_SPAWN_CHANCE = 0.35;           // Chance per spawn cycle to spawn a cloud
-export const CLOUD_SIZE_MIN = 8;                  // Minimum asteroids in a cloud
-export const CLOUD_SIZE_MAX = 25;                 // Maximum asteroids in a cloud (huge swarms!)
-export const CLOUD_SIZE_PER_LEVEL = 0.8;          // +0.8 asteroids per level (fast scaling)
+export const CLOUD_SPAWN_CHANCE = 0.2;            // Chance per spawn cycle to spawn a cloud
+export const CLOUD_SIZE_MIN = 5;                  // Minimum asteroids in a cloud
+export const CLOUD_SIZE_MAX = 14;                 // Maximum asteroids in a cloud
+export const CLOUD_SIZE_PER_LEVEL = 0.3;          // +0.3 asteroids per level
 export const CLOUD_COHESION_STRENGTH = 0.08;      // Pull toward cloud center
-export const CLOUD_HOMING_STRENGTH = 0.015;       // Cloud center homes toward player
-export const CLOUD_SPEED_BASE = 1.2;              // Base speed multiplier
+export const CLOUD_HOMING_STRENGTH = 0.01;        // Cloud center homes toward player
+export const CLOUD_SPEED_BASE = 1.25;             // Base speed multiplier
 export const CLOUD_SPEED_PER_LEVEL = 0.02;        // Speed scales with level
-export const CLOUD_SPEED_MAX = 1.8;               // Cap speed multiplier
-export const CLOUD_SPAWN_RADIUS = 120;            // Big spawn spread to prevent clumping
-export const CLOUD_MAX_SPREAD = 150;              // Max distance member can stray from center
+export const CLOUD_SPEED_MAX = 2.0;               // Cap speed multiplier
+export const CLOUD_SPAWN_RADIUS = 100;            // Spawn spread to prevent clumping
+export const CLOUD_MAX_SPREAD = 120;              // Max distance member can stray from center
+export const CLOUD_SPAWN_COOLDOWN_FRAMES = 240;    // 4 seconds cooldown between clouds
 // ============================================================================
 // DRONES - Autonomous companion orbiters
 // ============================================================================
@@ -307,29 +310,29 @@ export const DRONE_BASE_DAMAGE = 6;             // Base damage per drone bullet 
 // ============================================================================
 
 // XP Orbs
-export const XP_ORB_NORMAL_VALUE = 60;          // More XP per kill! (was 50)
-export const XP_ORB_SUPER_VALUE = 350;          // Rebalanced (was 500)
+export const XP_ORB_NORMAL_VALUE = 40;          // Lower XP to slow leveling
+export const XP_ORB_SUPER_VALUE = 220;          // Rebalanced
 export const XP_ORB_RADIUS = { NORMAL: 4, SUPER: 8 };
 
 // Hull Orbs
-export const HULL_ORB_VALUE = 25;               // HP restored
+export const HULL_ORB_VALUE = 18;               // HP restored
 export const HULL_ORB_RADIUS = 8;
-export const HULL_DROP_CHANCE = 0.025;          // Slightly higher (was 0.02)
+export const HULL_DROP_CHANCE = 0.015;          // Lower sustain for more threat
 
 // Collection
 export const ORB_MAGNET_RANGE_BASE = 60;        // Base pickup range
 export const ORB_DRIFT_SPEED = 0.5;             // Random drift velocity
 
 // Leveling - REBALANCED for faster, more rewarding progression
-export const XP_BASE_REQ = 150;                 // ~5 small orbs for level 1 (quick first dopamine hit)
-export const XP_SCALING_FACTOR = 1.22;          // Aggressive exponential - later levels are a grind
+export const XP_BASE_REQ = 300;                 // Slower early leveling
+export const XP_SCALING_FACTOR = 1.26;          // Steeper exponential for mid/late game
 
 // ============================================================================
 // UPGRADES - Stat scaling per tier
 // ============================================================================
 
 export const UPGRADE_ENGINE_MULT = 0.25;        // +25% speed per tier
-export const UPGRADE_REGEN_PER_TIER = 1.5;      // +1.5 HP/sec per tier
+export const UPGRADE_REGEN_PER_TIER = 1.2;      // +1.2 HP/sec per tier
 export const UPGRADE_HULL_MULT = 0.30;          // +30% max hull per tier
 
 // Main Cannon Upgrades
@@ -339,12 +342,16 @@ export const UPGRADE_RANGE_MULT = 0.30;           // +30% Range (Linear)
 
 export const UPGRADE_VELOCITY_MULT = 0.25;      // +25% bullet speed per tier (Unused currently)
 export const UPGRADE_MAGNET_RANGE = 60;         // +60px pickup range per tier
-export const UPGRADE_XP_MULT = 0.25;            // +25% XP value per tier
+export const UPGRADE_XP_MULT = 0.18;            // +18% XP value per tier
 
 // Drone Overclock
 export const UPGRADE_DRONE_FIRE_RATE_SPEED_MULT = 0.15; // +15% Fire Rate Speed (Linear)
 export const UPGRADE_DRONE_DAMAGE_MULT_COMPOUND = 1.10; // +10% Damage (Compounding)
 export const UPGRADE_DRONE_RANGE_MULT = 0.25;           // +25% Range (Linear)
+
+// Tungsten Shard Touch (chip damage + gentle push)
+export const TUNGSTEN_SHARD_TOUCH_DPS = 12;    // Damage per second near shard
+export const TUNGSTEN_SHARD_PUSH_FORCE = 0.35; // Gentle push force
 
 // Shield Mechanics
 export const SHIELD_RECHARGE_TIME = 30000;      // 30 seconds per shield charge

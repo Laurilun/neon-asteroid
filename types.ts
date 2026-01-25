@@ -62,6 +62,7 @@ export interface Ship extends Entity {
   invulnerableUntil: number;
   stats: ShipStats;
   isFrozen: boolean; // Track if currently in a slow field
+  stunnedUntil: number; // Timestamp until ship can rotate/thrust again (Iron collision)
 }
 
 // Fracture data for smart asteroid breaking
