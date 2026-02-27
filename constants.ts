@@ -16,9 +16,9 @@ export const FPS = 60;
 // SHIP - Player ship physics and base stats
 // ============================================================================
 
-export const SHIP_SIZE = 12;                    // Ship triangle size in pixels
-export const SHIP_THRUST = 0.035;               // Acceleration per frame when thrusting
-export const SHIP_TURN_SPEED = 0.045;           // Rotation speed in radians per frame
+export const SHIP_SIZE = 16;                    // Ship triangle size in pixels
+export const SHIP_THRUST = 0.045;               // Acceleration per frame when thrusting (Increased base mobility)
+export const SHIP_TURN_SPEED = 0.075;           // Rotation speed in radians per frame
 export const SHIP_FRICTION = 0.99;              // Velocity multiplier per frame (1 = no friction)
 export const SHIP_MAX_SPEED = 6.0;              // Maximum velocity magnitude
 export const SHIP_BASE_HULL = 100;              // Starting hull points
@@ -116,6 +116,8 @@ export interface AsteroidTypeConfig {
     shardRadiusMax?: number;     // Largest shard size
     shardCollisionMult?: number; // Collision radius multiplier (blocks more than visual)
     shardHp?: number;            // HP of each shard
+    shardShootIntervalBase?: number; // Frames between firing a shard bullet
+    shardProjectileSpeed?: number;   // Speed of the fired shard
 }
 
 export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
@@ -128,15 +130,15 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
         color: '#9ca3af'
     },
     MOLTEN: {
-        speedMult: 1.25,          // Slower but CHASES
+        speedMult: 1.75,          // FAST chaser
         hpMult: 2.2,              // Tanky
-        damageMult: 3.0,          // Deadly but survivable
+        damageMult: 5.0,          // Deadly
         threatMult: 2.0,          // HIGH threat - dangerous aura!
         splits: false,
         hasAura: true,            // Burn aura!
-        auraRange: 45,            // Burn ring
+        auraRange: 55,            // Burn ring
         auraSizeScale: 0.3,       // +30% range per size tier
-        auraDPS: 40,              // Still punishing
+        auraDPS: 75,              // BRUTAL punishing damage
         auraSlowFactor: 1.0,      // No slow effect
         color: '#ef4444',
         glowColor: '#f97316'
@@ -155,20 +157,20 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
     FROZEN: {
         speedMult: 0.45,          // Slow moving
         hpMult: 3.0,              // Tanky not sponge
-        damageMult: 1.0,          // Normal contact damage
+        damageMult: 1.5,          // Normal contact damage
         threatMult: 1.8,          // High threat - zoning control
         splits: false,
         hasAura: true,
-        auraRange: 110,           // Base aura (scales with size)
-        auraSizeScale: 0.25,      // +25% range per size tier
-        auraSlowFactor: 0.55,     // Slightly less punishing
-        auraDPS: 18,
+        auraRange: 180,           // MASSIVE zoning aura
+        auraSizeScale: 0.50,      // +50% range per size tier
+        auraSlowFactor: 0.25,     // BRUTAL slow (75% slower)
+        auraDPS: 28,
         color: '#06b6d4',
         glowColor: '#22d3ee'
     },
     TUNGSTEN: {
         speedMult: 1.0,           // Normal speed (like regular asteroids)
-        hpMult: 7.0,              // Extremely tanky - mini-boss feel
+        hpMult: 4.5,              // Dropped from 7.0 - destructible but still a tank
         damageMult: 1.35,         // Moderate contact damage
         threatMult: 2.6,          // Very high threat
         splits: false,
@@ -183,6 +185,8 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
         shardRadiusMax: 12,       // Largest chunks
         shardCollisionMult: 1.6,  // Collision 60% larger than visual (dense sand blocks more)
         shardHp: 18,              // Tanky - requires commitment to break through
+        shardShootIntervalBase: 100, // VERY dangerous - shoots about every 1.6s
+        shardProjectileSpeed: 4.5,   // Fast sniper projectile
         color: '#4a3728',         // Dark brown - heavy dense metal
         glowColor: '#6b4f3a'      // Warm brown glow
     }
@@ -196,39 +200,8 @@ export const ASTEROID_SPLIT_SEPARATION_SPEED = 0.4;
 export const ASTEROID_SPLIT_OFFSET_RATIO = 0.5;
 
 // ============================================================================
-// SPAWNING - Progression & Scaling for Endless Play
+// CONTINUOUS PHASE DIRECTOR SYSTEM (Vampire Survivors Style)
 // ============================================================================
-// Designed to scale smoothly from level 1 to 100+ without hard caps
-
-// --- Spawn Timing ---
-export const SPAWN_INTERVAL_BASE = 75;        // Slower early pressure
-export const SPAWN_INTERVAL_MIN = 20;         // Keeps pressure late
-export const SPAWN_INTERVAL_DECAY = 0.97;     // Smoother acceleration
-
-// --- Screen Density: THREAT-WEIGHTED SYSTEM ---
-// Instead of counting asteroids, we count "threat budget"
-// Threat = SIZE_MULTIPLIERS.threat × ASTEROID_TYPES.threatMult
-export const THREAT_BUDGET_BASE = 12;         // Starting threat budget
-export const THREAT_BUDGET_PER_LEVEL = 1.5;   // +1.5 threat per level
-export const THREAT_BUDGET_MAX = 70;          // Cap for very late game
-export const TARGET_ASTEROID_MIN = 4;         // Minimum asteroid COUNT (never empty)
-
-// --- Level Scaling ---
-export const LEVEL_HP_SCALING = 0.12;        // +12% HP per level (compounds)
-export const LEVEL_SPEED_SCALING = 0.02;     // +2% speed per level (caps at +100%)
-export const LEVEL_SPEED_CAP = 2.0;          // Max speed multiplier from levels
-export const LEVEL_DAMAGE_SCALING = 0.02;    // +2% damage per level (caps at +100%)
-export const LEVEL_DAMAGE_CAP = 2.0;         // Max damage multiplier from levels
-
-// --- Type Spawn Gates (level required for each type/size combo) ---
-// REBALANCED: Slightly later gates for breathing room (Vampire Survivors style)
-export const SPAWN_GATES = {
-    REGULAR: { SMALL: 1, MEDIUM: 1, LARGE: 3, XLARGE: 10 },
-    MOLTEN: { SMALL: 3, MEDIUM: 5, LARGE: 8, XLARGE: 14 },
-    IRON: { SMALL: 4, MEDIUM: 10, LARGE: 999, XLARGE: 999 },
-    FROZEN: { SMALL: 5, MEDIUM: 7, LARGE: 10, XLARGE: 20 },
-    TUNGSTEN: { SMALL: 6, MEDIUM: 10, LARGE: 999, XLARGE: 999 }  // Small/Medium only
-};
 
 // --- Iron Shotgun Burst (Iron ALWAYS spawns as burst) ---
 // Count scales with level in spawnIronBurst function
@@ -238,23 +211,72 @@ export const IRON_BURST_COUNT_MAX = 6;        // Cap for very high levels
 export const IRON_BURST_SPEED_MULT = 2.0;     // Faster, more threatening
 export const IRON_BURST_SPREAD = 0.2;         // Tighter spread toward player
 
-// --- Type Spawn Weights (relative chance to spawn each type) ---
-// Higher = more common. Weights scale with level for variety.
-export const TYPE_SPAWN_WEIGHTS = {
-    REGULAR: { base: 110, perLevel: -1.2, min: 55 }, // Stays dominant
-    MOLTEN: { base: 0, perLevel: 3.2, max: 34 },     // Steady threat
-    IRON: { base: 0, perLevel: 0.9, max: 12 },       // Rare spikes
-    FROZEN: { base: 0, perLevel: 3.1, max: 28 },     // Zoning threat
-    TUNGSTEN: { base: 0, perLevel: 2.4, max: 24 }    // Mini-boss pacing
-};
+// --- Relentless Level Scaling ---
+// This ensures that eventually, even regular swarms will easily overwhelm an OP ship
+export const LEVEL_HP_SCALING = 0.16;        // +16% HP per level (compounds)
+export const LEVEL_SPEED_SCALING = 0.05;     // +5% base speed per level
+export const LEVEL_SPEED_CAP = 3.5;          // Huge cap - they get VERY fast
+export const LEVEL_DAMAGE_SCALING = 0.05;    // +5% damage per level
+export const LEVEL_DAMAGE_CAP = 4.0;         // Max damage multiplier
 
-// --- Size Spawn Weights (relative chance for each size) ---
-// Larger sizes become more common at higher levels
-export const SIZE_SPAWN_WEIGHTS = {
-    SMALL: { base: 35, perLevel: -0.8, min: 12 },
-    MEDIUM: { base: 40, perLevel: 0, min: 28, max: 40 },
-    LARGE: { base: 4, perLevel: 0.7, max: 20 },
-    XLARGE: { base: 0, perLevel: 0.28, max: 7 }
+// --- Phase Configuration ---
+export const PHASE_DURATION_FRAMES = 3600;   // 60 seconds per phase (at 60fps)
+
+// The overall spawning aggressiveness scales with time/level indefinitely
+export const SPAWN_BASE_CHANCE = 0.005;      // Base chance per frame to spawn an entity (starts slow)
+export const SPAWN_CHANCE_PER_LEVEL = 0.004; // Increases spawn density every level (ramps up harder later)
+export const SPAWN_CHANCE_MAX = 0.25;        // Cap the absurdity
+
+// Defines the composition weights for each phase.
+// A phase overrides standard spawn logic with these targeted weights.
+export const PHASE_CONFIG: Record<string, {
+    description: string,
+    color: string,
+    weights: { REGULAR: number, MOLTEN: number, IRON: number, FROZEN: number, TUNGSTEN: number },
+    cloudChance: number,
+}> = {
+    'WARMUP': {
+        description: "", // Initial phase, no text
+        color: "#ffffff",
+        weights: { REGULAR: 100, MOLTEN: 0, IRON: 0, FROZEN: 0, TUNGSTEN: 0 },
+        cloudChance: 0.1
+    },
+    'SWARM': {
+        description: "ASTEROID SWARM INBOUND",
+        color: "#9ca3af",
+        weights: { REGULAR: 100, MOLTEN: 0, IRON: 0, FROZEN: 0, TUNGSTEN: 0 },
+        cloudChance: 0.6 // Huge chance of organized swarms
+    },
+    'IRON_STORM': {
+        description: "IRON STORM",
+        color: "#a16207",
+        weights: { REGULAR: 20, MOLTEN: 0, IRON: 80, FROZEN: 0, TUNGSTEN: 0 },
+        cloudChance: 0.0
+    },
+    'FROST_DOMAIN': {
+        description: "FROST DOMAIN",
+        color: "#22d3ee",
+        weights: { REGULAR: 35, MOLTEN: 0, IRON: 5, FROZEN: 60, TUNGSTEN: 0 },
+        cloudChance: 0.1
+    },
+    'MOLTEN_CORE': {
+        description: "MOLTEN CORE",
+        color: "#f97316",
+        weights: { REGULAR: 35, MOLTEN: 60, IRON: 0, FROZEN: 5, TUNGSTEN: 0 },
+        cloudChance: 0.1
+    },
+    'TUNGSTEN_BOSS': {
+        description: "TUNGSTEN ELITES",
+        color: "#6b4f3a",
+        weights: { REGULAR: 40, MOLTEN: 10, IRON: 0, FROZEN: 10, TUNGSTEN: 40 },
+        cloudChance: 0.1
+    },
+    'MIXED_CHAOS': {
+        description: "CHAOS",
+        color: "#ef4444",
+        weights: { REGULAR: 20, MOLTEN: 20, IRON: 20, FROZEN: 20, TUNGSTEN: 20 },
+        cloudChance: 0.2
+    }
 };
 
 // --- Freebie Upgrade Orb (rare drop from special asteroids) ---
@@ -268,13 +290,13 @@ export const CLOUD_SPAWN_CHANCE = 0.2;            // Chance per spawn cycle to s
 export const CLOUD_SIZE_MIN = 5;                  // Minimum asteroids in a cloud
 export const CLOUD_SIZE_MAX = 14;                 // Maximum asteroids in a cloud
 export const CLOUD_SIZE_PER_LEVEL = 0.3;          // +0.3 asteroids per level
-export const CLOUD_COHESION_STRENGTH = 0.08;      // Pull toward cloud center
-export const CLOUD_HOMING_STRENGTH = 0.01;        // Cloud center homes toward player
-export const CLOUD_SPEED_BASE = 1.25;             // Base speed multiplier
-export const CLOUD_SPEED_PER_LEVEL = 0.02;        // Speed scales with level
-export const CLOUD_SPEED_MAX = 2.0;               // Cap speed multiplier
-export const CLOUD_SPAWN_RADIUS = 100;            // Spawn spread to prevent clumping
-export const CLOUD_MAX_SPREAD = 120;              // Max distance member can stray from center
+export const CLOUD_COHESION_STRENGTH = 0.15;      // Pull toward cloud center (Tighter)
+export const CLOUD_HOMING_STRENGTH = 0.012;       // Base homing start
+export const CLOUD_SPEED_BASE = 1.35;             // Base speed multiplier (Faster)
+export const CLOUD_SPEED_PER_LEVEL = 0.035;       // Speed scales heavily with level
+export const CLOUD_SPEED_MAX = 3.5;               // Higher Cap speed multiplier
+export const CLOUD_SPAWN_RADIUS = 60;             // Spawn spread to prevent clumping (Tighter)
+export const CLOUD_MAX_SPREAD = 80;               // Max distance member can stray from center
 export const CLOUD_SPAWN_COOLDOWN_FRAMES = 240;    // 4 seconds cooldown between clouds
 // ============================================================================
 // DRONES - Autonomous companion orbiters

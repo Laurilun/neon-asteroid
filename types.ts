@@ -12,6 +12,7 @@ export enum EntityType {
   IronAsteroid = 'IRON_ASTEROID',
   TungstenAsteroid = 'TUNGSTEN_ASTEROID',
   TungstenShard = 'TUNGSTEN_SHARD',
+  EnemyProjectile = 'ENEMY_PROJECTILE',
   Bullet = 'BULLET',
   Particle = 'PARTICLE',
   ExpOrb = 'EXP_ORB',
@@ -19,6 +20,8 @@ export enum EntityType {
   FreebieOrb = 'FREEBIE_ORB',
   Drone = 'DRONE',
 }
+
+export type PhaseType = 'WARMUP' | 'SWARM' | 'IRON_STORM' | 'FROST_DOMAIN' | 'MOLTEN_CORE' | 'TUNGSTEN_BOSS' | 'MIXED_CHAOS';
 
 export interface Entity {
   id: string;
@@ -87,6 +90,7 @@ export interface Asteroid extends Entity {
   fractureData?: FractureData; // Pre-computed fracture for splitting (size 2+)
   shardIds?: string[]; // IDs of orbiting shards (Tungsten only)
   shardSpawnTimer?: number; // Timer for periodic shard spawning (Tungsten only)
+  shardShootTimer?: number; // Timer for shooting a shard at player
 }
 
 // Orbiting defensive shard around Tungsten asteroid
@@ -106,6 +110,13 @@ export interface TungstenShard extends Entity {
   wobblePhase: number;      // Phase offset for sine wave
   wobbleSpeed: number;      // How fast wobble cycles
   driftOffset: Vector;      // Random drift from perfect orbit
+}
+
+export interface EnemyProjectile extends Entity {
+  damage: number;
+  rotation: number;
+  rotationSpeed: number;
+  vertices: Vector[];
 }
 
 export interface Bullet extends Entity {
