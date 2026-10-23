@@ -112,6 +112,7 @@ export interface TungstenShard extends Entity {
 }
 
 export interface Bullet extends Entity {
+  previousPos?: Vector; // Start of the current simulation step's swept segment
   life: number;
   damage: number; // Snapshot damage at time of firing
   bouncesRemaining: number; // Ricochet bounces left

@@ -103,7 +103,7 @@ Instead of discrete waves, the game uses a "Director" that maintains a specific 
 
 ### Rendering
 *   **Engine:** HTML5 Canvas + React Ref-based loop.
-*   **Frame Rate:** 60 FPS target.
+*   **Simulation:** Fixed 60 Hz updates with bounded catch-up; independent rendering uses the latest state. Upgrade menus, hidden tabs, and focus loss suspend gameplay time.
 *   **Juice (Game Feel):**
     *   **Screen Shake:** On impacts and explosions.
     *   **Hit Flash:** Entities flash white when damaged.
@@ -111,5 +111,7 @@ Instead of discrete waves, the game uses a "Director" that maintains a specific 
     *   **Floating Text:** Damage numbers and resource pickups.
 
 ### Collision Detection
-*   **Ship:** Vertex-based polygon collision (3 points) against Circle (Asteroid). Ensures the triangular shape feels physically accurate.
-*   **Bullets:** Circle-Circle collision.
+*   **Ship:** Triangle edges and containment against a circle at 85% of the asteroid's visual radius.
+*   **Bullets:** Swept circle contacts select the earliest asteroid/shard impact; shards retain their defensive collision radius and win equal-time ties.
+
+See [README.md](README.md) for the engine module map, validation commands, intentional timing/contact corrections, remaining risks, and browser verification limits. Follow [.agent/rules/rules.md](.agent/rules/rules.md) for the `main` development and automatic GitHub publication workflow.

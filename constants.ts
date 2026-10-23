@@ -8,8 +8,7 @@ import { UpgradeCategory, UpgradeDef } from './types';
 // gameplay, difficulty, and feel. Each section is clearly labeled.
 // ============================================================================
 
-export const CANVAS_WIDTH = window.innerWidth;
-export const CANVAS_HEIGHT = window.innerHeight;
+// Viewport dimensions belong to the canvas integration, not balance constants.
 export const FPS = 60;
 
 // ============================================================================
