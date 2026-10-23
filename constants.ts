@@ -16,7 +16,7 @@ export const FPS = 60;
 // SHIP - Player ship physics and base stats
 // ============================================================================
 
-export const SHIP_SIZE = 13;                    // Ship triangle size in pixels
+export const SHIP_SIZE = 14;                    // Ship triangle size in pixels
 export const SHIP_THRUST = 0.045;               // Acceleration per frame when thrusting
 export const SHIP_TURN_SPEED = 0.045;           // Rotation speed in radians per frame
 export const SHIP_FRICTION = 0.99;              // Velocity multiplier per frame (1 = no friction)
@@ -60,7 +60,7 @@ export const ASTEROID_BASE = {
     RADIUS: 18,          // Base radius in pixels
     HP: 22,              // Base hit points
     SPEED: 0.8,          // Base movement speed
-    DAMAGE: 30,          // Base collision damage
+    DAMAGE: 36,          // Base collision damage (Scaled up slightly)
     ROTATION: 0.015,     // Base rotation speed (radians/frame)
     VERTICES: 8,         // Base polygon vertices
     XP_VALUE: 30         // Base XP orb value
@@ -168,7 +168,7 @@ export const ASTEROID_TYPES: Record<AsteroidTypeName, AsteroidTypeConfig> = {
     },
     TUNGSTEN: {
         speedMult: 1.0,           // Normal speed (like regular asteroids)
-        hpMult: 7.0,              // Extremely tanky - mini-boss feel
+        hpMult: 4.5,              // Reduced HP
         damageMult: 1.35,         // Moderate contact damage
         threatMult: 2.6,          // Very high threat
         splits: false,
@@ -399,6 +399,9 @@ export const MAX_XP_ORBS = 100;                 // Max XP orbs on screen
 export const MAX_HULL_ORBS = 20;                // Max hull orbs on screen
 export const MAX_FLOATING_TEXT = 15;            // Max damage/XP numbers
 export const MAX_BULLETS = 100;                 // Max bullets on screen
+export const MAX_FREEBIE_ORBS = 20;             // Rare upgrade drops must not accumulate forever
+export const MAX_SHARDS = 80;                    // Defensive shards/projectiles across all Tungsten asteroids
+export const MAX_ASTEROIDS = 120;                // Absolute safety ceiling for a long endless run
 
 // Colors
 export const COLORS = {

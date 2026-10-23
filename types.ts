@@ -87,6 +87,8 @@ export interface Asteroid extends Entity {
   fractureData?: FractureData; // Pre-computed fracture for splitting (size 2+)
   shardIds?: string[]; // IDs of orbiting shards (Tungsten only)
   shardSpawnTimer?: number; // Timer for periodic shard spawning (Tungsten only)
+  throwTimer?: number; // Timer for throwing shards (Tungsten only)
+  burstCount?: number; // Number of shards left to throw in current burst
 }
 
 // Orbiting defensive shard around Tungsten asteroid
@@ -106,6 +108,7 @@ export interface TungstenShard extends Entity {
   wobblePhase: number;      // Phase offset for sine wave
   wobbleSpeed: number;      // How fast wobble cycles
   driftOffset: Vector;      // Random drift from perfect orbit
+  isThrown?: boolean;       // If true, the shard detaches and flies towards the player
 }
 
 export interface Bullet extends Entity {
