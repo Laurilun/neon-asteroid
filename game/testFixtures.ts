@@ -6,6 +6,7 @@ export function makeShip(): Ship {
     id: 'ship', type: EntityType.Player, pos: { x: 100, y: 100 }, vel: { x: 0, y: 0 },
     radius: 14, angle: 0, rotation: 0, color: '#fff', toBeRemoved: false,
     thrusting: false, hull: 100, maxHull: 100, invulnerableUntil: 2000,
+    angularVelocity: 0, throttle: 0, steering: 0,
     isFrozen: false, stunnedUntil: 0,
     stats: {
       regenRate: 0, thrustMult: 1, speedMult: 1, maxHullMult: 1, fireRateMult: 1,

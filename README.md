@@ -1,50 +1,57 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+﻿# Neon Void — New Era
 
-# Neon Void — New Era
+A Canvas 2D arcade survival roguelite built with React, Vite and TypeScript. **Mass & Mayhem** turns the original outline ship into an armored gunship, with persistent drift, a physical cannon battery, material surfaces and procedural breakup. [View the art contact sheet](docs/mass-mayhem-preview.png) (actual drawing code, including ships at gameplay scale; not a browser playtest).
 
-A Canvas 2D arcade survival roguelite built with React, Vite, and TypeScript. GitHub's default `main` is the development baseline; `paska` preserves the original New Era history. See [.agent/rules/rules.md](.agent/rules/rules.md) for the automatic validate/commit/push workflow.
+GitHub's default `main` is the development baseline. `paska` retains the original New Era history. Completed work is validated, committed and pushed automatically; see [.agent/rules/rules.md](.agent/rules/rules.md).
 
-## Run locally
+## Run and validate
 
-With Node.js installed, run `npm ci`, then `npm run dev` (port 3000). No API key is needed to play. Arrow keys steer and thrust, weapons fire automatically, Space starts/restarts, and F3 toggles diagnostics. Developer controls expose start-level overrides and the existing combat sandbox.
+With Node.js installed, run `npm ci`, then `npm run dev` (port 3000). No API key is needed. Arrow keys steer/thrust; cannons fire automatically. Space starts/restarts, **P pauses**, and F3 shows diagnostics. Reduced effects is available in the top-right corner and defaults to the system reduced-motion preference.
 
-## Validate
+Run `npm test`, `npm run typecheck`, and `npm run build`. On Windows, use `npm.cmd` if PowerShell blocks the npm script shim. No new game dependencies were added for this milestone.
 
-Run `npm test`, `npm run typecheck`, and `npm run build`. On Windows, use `npm.cmd` if PowerShell's execution policy blocks `npm.ps1`.
+## What changed
 
-The Engine Foundation baseline passed its original four tests, TypeScript command, and production build. Its React type definitions were missing, leaving React state largely unchecked; matching React 19 type definitions are now installed and the missing initial ship stun timestamp is initialized. The expanded suite covers refresh-rate equivalence, bounded catch-up, suspension/resume, cooldowns, movement/wrapping, projectile lifetime, swept contacts, overlapping targets, ricochets, shard blocking, and stable entity cleanup/caps.
+- **Handling:** angular acceleration, fast counter-steering and automatic attitude braking give rotation a wind-up and recovery without rotating the travel vector. Thrust spools quickly; retrograde thrust brakes; low drag preserves coast. A soft speed governor retains collision impulses. Engine plumes, corrective jets and a velocity chevron expose actual motion. The arena still wraps.
+- **Ship and battery:** layered slate armor, twin engine housings, cockpit and readable muzzle hardware share normalized geometry with collision detection. Split Shot adds physically positioned, slightly converging cannons: one through eight visible barrels. Tiers beyond seven reinforce that battery by 8% per tier, keeping it readable.
+- **Weapon balance:** the base cannon fires a 14-damage, 12px/tick sabot every 18 ticks, with a nominal 26-tick / 312px life. Additional cannons each retain 80% of base cannon damage rather than dividing the old volley. Rails increase damage/reach and reinforce the projectile silhouette; cooling affects cycling, barrel recoil and heat; ricochets use a cyan trail. Four ticks remains the minimum interval. The bullet cap is now 220 so a fast eight-gun rail battery can retain its range.
+- **Contact and destruction:** swept polygon contacts find actual asteroid/fragment surfaces. Hull and barrel geometry participate in ship contacts; relative surface-normal speed distinguishes glances from head-on collisions. Projectile impulses depend on target size/density. Local scars grow with damage. Clipped parent polygons become live split children with inherited translation, rotation and separation; nonsplitting bodies leave temporary material chunks. Existing type-specific splitting eligibility, size-category HP, loot and progression remain in ordinary runs.
+- **Presentation:** typed shot, impact, fracture, contact and near-miss events feed bounded visual lifetimes. Rock/crystal/metal silhouettes and surfaces differ structurally. Stable surfaces are generated once into a weakly held internal Canvas cache; cracks and hazard boundaries remain dynamic. Lighting on cached surfaces is baked in object space. New visual variation uses its own seeded RNG, never render-frame randomness. The random cyan cartridges are removed.
 
-## Engine boundaries
+## Game-feel experiment lab
+
+In the menu, enable **Dev Mode**, enable **Game-feel lab**, then **Initiate Launch**. The lab is absent from ordinary runs. Click the arena after editing a slider; Reset and Resume also restore flight focus. Collapse the panel with its header.
+
+Handling presets (Gunship, Interceptor, Freighter), engine power, contact impulse and shake change live. Weapon sliders equip absolute tiers immediately. Material, size and target motion apply on **Reset trial / Apply targets**. Targets have real, finite HP and use real impact/splitting logic. Lab targets suppress homing and mutual declumping for repeatable trials; Tungsten still grows and throws its defensive shards. Lab kills skip loot/level-up interruptions. Repeat respawns the target group one second after it is cleared.
+
+A fast manual verification pass:
+
+1. With the default gunship, thrust, coast, turn across your travel direction, counter-steer, then face backward and brake. Cross all four screen edges. Compare the other two presets.
+2. Reset a regular Large target. Watch the central cannon cycle, localized hits, cracks and clipped halves. Try Split Shot 1, 3 and 7; inspect separate muzzles and recoil. Raise cooling/rails/ricochet and check the increasingly dense battery still reads clearly.
+3. Change material/size/motion and reset. Inspect Molten crust/aura, Frozen crystals/slow, Iron plates/impulses, Tungsten strata/shard blocking/throws, and moving targets. Turn ship immunity off to compare glancing and head-on contacts, damage, death and Space restart.
+4. Pause with P or the lab button; verify all motion and effects freeze. Resume, switch tabs and return, toggle Reduced effects, and verify no time jump or stuck thrust. Use F3 during a high-tier trial to watch entity/effect counts.
+5. Exit to the menu, disable Dev Mode, launch an ordinary run and check XP collection, upgrade selection, splitting/drops, drones, shield saves and game-over/restart. These React/UI flows still require browser verification.
+
+## Engine map
 
 | Location | Responsibility |
 | --- | --- |
-| `game/engine.ts` | Simulation clock, periodic timer primitive, in-place entity cleanup/caps |
-| `game/movement.ts` | One-tick ship steering, thrust, friction, frozen slow, knockback decay, wrapping |
-| `game/projectiles.ts` | Player cooldown/volleys, projectile movement/lifetime/trails, earliest-hit resolution, shard links, ricochets |
-| `game/collision.ts` | Framework-independent swept segment/circle and ship triangle/circle geometry |
-| `components/AsteroidsGame.tsx` | React/canvas lifecycle, world collections, integration, effects/rendering, remaining asteroid/director/progression rules |
-| `components/GameUI.tsx` | Existing menus, HUD, upgrades and developer controls |
-| `constants.ts`, `types.ts` | Balance configuration and shared entity contracts |
+| `game/engine.ts` | 60 Hz simulation clock, five-step catch-up bound, timers and in-place cleanup/caps |
+| `game/movement.ts` | Handling presets, angular/linear momentum, thrust, slow and wrapping |
+| `game/geometry.ts`, `game/collision.ts` | Shared hull/mount geometry, clipping, swept polygon contacts and directional ship response |
+| `game/projectiles.ts`, `game/asteroids.ts` | Cannon cadence/damage, firing origins, projectile lifecycle/ricochets, material geometry, impulses and breakup |
+| `game/feel.ts`, `game/art.ts` | Typed visual responses, recoil/heat/debris budgets, cached procedural rendering |
+| `game/lab.ts`, `components/FeelLab.tsx` | Absolute experiment loadouts and compact developer controls |
+| `components/AsteroidsGame.tsx`, `components/GameUI.tsx` | React/canvas integration, world collections, director/cloud/special rules, progression and existing menus/HUD |
 
-Projectile effects and asteroid destruction/loot are narrow callbacks into the integration component. Extracted systems receive explicit state and have no React, DOM, wall-clock, or canvas dependency. Weapon randomness is injectable. `pools.ts` remains unused; this milestone uses in-place collection cleanup without introducing a second pooling/lifecycle system.
+Rendering never advances gameplay. Upgrade menus, explicit pause, focus loss and hidden tabs suspend simulation time. Invulnerability, cooldowns, pending spawns and visual lifetimes do not expire while paused. Excess wall time beyond five catch-up steps is discarded. Rendering uses the latest simulation state, without interpolation.
 
-## Timing and contact behavior
+Visual budgets are 120 chunks + 100 accents, reduced to 45 + 40 with Reduced effects; every effect expires. Reduced effects disables shake and ship blinking, limits flashes and removes aura haze. Gameplay entity ceilings remain 120 asteroids / 80 shards, with 220 projectiles. `pools.ts` remains unused; no parallel pooling system was introduced.
 
-- All simulation rules run at 60 Hz, preserving the existing 60 FPS constants. Rendering runs once per animation frame with the latest state; interpolation is deferred.
-- At most five simulation steps run per rendered frame. Excess elapsed time is discarded during large stalls, so severe overload slows gameplay rather than causing unbounded catch-up.
-- Upgrade screens, window blur, and hidden tabs suspend simulation. Input is cleared on focus/visibility changes; resume establishes a fresh timestamp. Invulnerability, weapon/director timers, queued spawns, shards, and effects use simulation time and do not expire while paused. A new run resets the clock and weapon cooldown.
-- Bullets sweep their full tick segment, including their final lifetime/viewport segment, and damage only the first contact. Shards win exact contact ties using their existing defensive `collisionRadius`. Asteroids retain their full projectile radius; ship contacts retain the existing forgiving 85% asteroid radius and now include triangle edges/containment.
-- A collision starts its invulnerability window immediately, preventing multiple overlapping rocks from bypassing it in the same tick. Lethal shard chip damage and aura deaths now enter game over consistently. Freebie upgrade selection opens after the current tick finishes, consuming one freebie at a time.
-- Ricochets retain damage/range rules and may revisit earlier chain members, excluding only their immediate source. New ricochets begin movement/collision on the next tick. Hit effects now originate at actual contact points. Thrust particles emit from the updated ship position.
+## Verification and remaining limits
 
-## Verification limits and next work
+Milestone checks: **86 tests**, TypeScript and production build pass. Tests cover refresh-rate equivalence, pauses, movement/momentum, firing origins and damage, polygon contacts, breakup area/motion, effect cleanup/caps, cached drawing and repeatable rendering. Static Canvas output was inspected at gameplay scale. A local software-Canvas capped-load probe (120 rocks, 80 shards, 220 bullets, 120 chunks, 100 accents) averaged approximately 18ms drawing and 4ms projectile collision work; this is **not browser FPS evidence**.
 
-Automated engine checks pass. Interactive browser smoke testing was unavailable in the Engine Foundation session: browser automation listed no connected browsers and could not open an in-app browser. Starting Vite also encountered a sandbox port permission error. Start/restart, visual movement/wrapping, asteroid splitting, XP/upgrade selection, focus suspension, damage/death, and all special asteroid behaviors still need a practical browser pass; unit tests do not replace that pass.
+Vite starts and serves HTTP 200. Interactive browser testing remains unavailable in this session: no connected browser, no in-app browser, and the Windows automation helper's native pipe is unavailable. No start/restart, upgrade UI, full special-behavior, subjective handling or real-browser performance pass is claimed. Use the lab checks above first.
 
-Priorities for the next milestone:
-
-1. Playtest and characterize ship control feel, shooting responsiveness, and asteroid interactions against this baseline, especially at 30/60/high refresh rates. Add integration coverage for XP/freebie/death transitions as progression is extracted.
-2. Extract asteroid/director and progression state from the integration component. Their scans, cloud membership lookups, and shard spawning still dominate coupling; preserve special behaviors before optimizing.
-3. Consider relative-motion continuous collision and a broad phase only after profiling. Current sweeps test targets at their end-of-tick positions; very fast moving targets, thrown shard/ship tunneling, and physical contacts across wrap seams remain limitations. No physics engine or spatial partition was added.
+Next priorities are real browser playtesting and profiling, then tuning control/cannon balance against actual runs. Eight muzzles are close to the readability limit; large broken rocks retain exact outer geometry but generated interior texture can change across pieces. Late-game visual density and high-tier power need human judgment. Relative target-motion CCD, thrown-shard/ship tunneling, wrap-seam contacts, and the director/cloud collection scans remain limitations. No audio, hit-stop, camera panning, external art/sprites, general physics engine, full editor or broad-phase framework was added.

@@ -1,117 +1,48 @@
-# Neon Void: Survival - Game Design Document
+﻿# Neon Void — Game Design
 
-## 1. High Concept & Philosophy
-**"Classic Asteroids meets Vampire Survivors."**
+## Core fantasy
 
-Neon Void takes the Newtonian physics and skill-based maneuvering of the arcade classic *Asteroids* and fuses it with the dopamine-fueled progression loop of *Vampire Survivors*.
+Pilot an armored gunship through an asteroid field, manage momentum, discharge a growing cannon battery and tear substantial masses apart. Classic Asteroids steering/wrapping meets a compact survival roguelite: collect energy, choose a build, survive escalating pressure and want another run after death.
 
-### The Core Experience
-1.  **The Power Fantasy (Zero to Hero):**
-    *   **The Start (Survival Horror):** You start weak. The ship is heavy, turning is slow, and a single asteroid is a threat. You feel vulnerable.
-    *   **The End (Doomsday Machine):** By Level 20, you are a god. You don't just survive the void; you consume it. Your ship is a blur of neon, dragging a swarm of drones and unleashing a wall of plasma. The physics that once fought you now obey you.
+Mass, clarity, causality, rhythm and restraint guide the art and handling. Opaque surfaces, mechanical silhouettes and localized energy take precedence over generic neon outlines and full-screen flashes. The base ship and cannon should be satisfying before upgrades arrive.
 
-2.  **The "One More Run" Loop:**
-    *   Sessions are designed to be intense and end abruptly if you lose focus.
-    *   The "Just one more round" phenomenon is driven by the desire to try a different build (e.g., "What if I max out Drones and Magnet instead of Cannons?").
+## Piloting and combat
 
-3.  **Synergy & Build Crafting:**
-    *   The satisfaction comes from breaking the game mechanics through upgrades. Finding the right combination of **Tech** (Movement), **Combat** (DPS), and **Add-ons** (Utility) creates a unique "flow" for every run.
+Arrow keys steer and thrust; firing is automatic and forward-facing. Space starts/restarts and P pauses. Rotation has acceleration and inertia, with quick counter-steering and automatic attitude braking. Turning preserves linear momentum; deliberate retrograde thrust brakes travel. The ship wraps across the fixed arena without a scrolling camera.
 
----
+The procedural gunship has layered armor, engine housings, a cockpit and visible hardpoints. Hull and cannon templates define both drawing and collision footprint. Propulsion, recoil, heat and velocity cues respond to actual simulation state.
 
-## 2. Core Mechanics
+Split Shot grows a mounted battery through eight visible cannons, then reinforces it. Each added barrel retains useful damage; the battery slightly converges rather than spraying an ever-wider cone. Hyper-Cooling changes cycling rhythm, Magnetic Rails changes power/reach, and Ricochet produces distinct target-to-target traces. The random cyan shell effect is removed.
 
-### Movement (Newtonian Drift)
-*   **Physics:** The ship has low friction (`0.99`), meaning it drifts significantly after thrusting stops.
-*   **Control:** To stop or turn tight, the player must perform a "retrograde burn" (thrust in the opposite direction).
-*   **Thrust:** Applying thrust consumes no resource; movement mastery is the skill gate.
-*   **Progression:** Starts heavy and sluggish. Upgrades ("Plasmatron Thrusters") make it snappy and fast.
+Projectile hits apply localized, mass-dependent impulses and persistent damage scars. Asteroid polygons are clipped at destruction; live child rocks preserve pieces of the parent's boundary and inherit translation, rotation and separation. Material chunks supplement them and expire. Glancing ship contacts preserve tangential travel and are less severe than head-on collisions.
 
-### The Economy (Hull)
-1.  **Hull (Health):**
-    *   **Damage:** Collisions with asteroids reduce Hull Integrity.
-        *   Small Asteroid: ~5 damage.
-        *   Large Asteroid: ~15 damage + massive knockback.
-        *   Molten Asteroid: High damage + burn aura (unless shielded).
-    *   **Recovery:** Destroyed asteroids have a **10% chance** to drop a **Blue Hull Orb**.
+## Survival and progression
 
-### Combat
-*   **Weaponry:** Short-range, rapid-fire energy bolts.
-*   **Design:** Bullets fizzle out quickly (`Life: 18 frames`), forcing the player to get close to enemies to kill them ("Danger Close").
-*   **Aiming:** Fixed forward-firing. You must face your target to shoot.
+Hull is health. Collisions, thrown shards and damaging auras threaten it; regeneration, hull pickups, plating and shields support survival. Shields save a fatal hit, restore partial hull and grant temporary invulnerability, then recharge over gameplay time. Invulnerability and recharge do not run down while paused.
 
----
+Kills grant score; XP comes from collected orbs. The current level target starts at 300 XP and grows by 1.26 per level, carrying overflow. Level-up pauses the simulation and offers one upgrade from each available category. Rare special-asteroid freebies grant an upgrade without increasing the level. Numeric tuning belongs in `constants.ts` rather than this document's historical tables.
 
-## 3. Progression System
+| Category | Systems |
+| --- | --- |
+| Tech | Thrusters, regeneration and hull plating |
+| Combat | Cooling, mounted Split Shot, rails and ricochet |
+| Add-ons | Drones and overclock, pickup magnet/XP, shields and radiation |
 
-### Leveling
-*   **XP Source:** XP orbs only (kills grant score, not XP).
-*   **Curve:** Fast start (Level 1 req: 150 XP) to hook the player immediately, then scales exponentially (`x1.22`).
-*   **Reward:** On Level Up, the game pauses and offers **3 Random Upgrades**, one from each category.
+## Enemy identity
 
-### Upgrade Categories
-The game uses a tiered upgrade system. Duplicate upgrades stack infinitely (or until capped), creating massive power spikes.
+| Material/entity | Visual and mechanical identity |
+| --- | --- |
+| Regular rock | Pitted, stratified mass; wraps, drifts and splits by size |
+| Molten | Basalt crust and branching hot seams; damaging aura and gentle pursuit/flyby |
+| Frozen | Angular crystal silhouette and facets; slowing/damaging zone |
+| Iron | Asymmetric plated debris; fast burst entries and strong contact impulses |
+| Tungsten | Dense blocky strata; orbiting defensive shards that intercept rounds and can be thrown |
+| Clouds | Cohesive groups of small regular rocks that approach together |
 
-#### 🟢 TECH (Ship Systems)
-*Focus: Movement & Survivability*
-| ID | Name | Effect |
-| :--- | :--- | :--- |
-| `engine` | **Plasmatron Thrusters** | Increases Acceleration & Max Speed (+25% per tier). Essential for dodging high-speed threats. |
-| `regen` | **Regen Matrix** | Repairs hull over time (+1.5 HP/s per tier). Stabilizes long runs. |
-| `hull` | **Nanocarbon Plating** | Increases Max Hull (+30%) and fully repairs the ship. The "Panic Button" heal. |
+The director retains threat-weighted, level-gated spawning. Special types retain their aura, burst, cloud or shard roles. Material choice affects projectile impulse through density. Lab targets suppress homing/declumping to isolate feel, and lab kills skip loot; these experiment rules do not apply to ordinary runs.
 
-#### 🔴 COMBAT (Weaponry)
-*Focus: DPS & Crowd Control*
-| ID | Name | Effect |
-| :--- | :--- | :--- |
-| `rapidfire` | **Hyper-Cooling** | Increases Fire Rate (+20% per tier). Turns the pea-shooter into a laser stream. |
-| `multishot` | **Splitfire Cannons** | Adds projectiles: Double -> Triple -> Penta-Shot spread. Clears screens instantly. |
-| `range` | **Magnetic Rails** | Increases Bullet Range (+30% per tier) and damage scaling. |
+## Technical/design boundary
 
-#### 🟣 ADD-ONS (Special Modules)
-*Focus: Automation & Defense*
-| ID | Name | Effect |
-| :--- | :--- | :--- |
-| `drone` | **A.R.C. Swarm** | Adds an autonomous drone that orbits and shoots nearest enemies. The "AFK Farm" enabler. |
-| `magnet` | **Tractor Beam** | Pulls XP and Hull orbs towards the ship from a distance. Reduces risky maneuvers. |
-| `shield` | **Molten Heat Shield** | Blocks hits from Molten Asteroids. Recharges on Level Up. The "Extra Life" mechanic. |
+The game remains React / TypeScript / Vite with Canvas 2D and a fixed 60 Hz simulation. Visual events carry shot, impact, fracture, contact and close-pass responses; they can support future audio without an audio pipeline today. Stable procedural surfaces are cached, visual randomness is independent of gameplay, and debris/effect counts and lifetimes are bounded.
 
----
-
-## 4. Enemies & Spawning
-
-### The "Director" System
-Instead of discrete waves, the game uses a "Director" that maintains a specific density of asteroids based on the current level.
-*   **Seamless Entry:** Enemies spawn off-screen and drift in. No pop-ins.
-*   **Formations:** 15% chance to spawn a group of rocks in a V-Shape or Line formation, forcing the player to weave or blast a hole.
-
-### Enemy Types
-| Type | Color | Behavior | Threat |
-| :--- | :--- | :--- | :--- |
-| **Asteroid (S/M/L)** | Grey | Drifts, bounces off edges (screen wrap). Splits on death. | Hull Damage, Physical obstruction. |
-| **Molten (Flyby)** | Red | Spawns at edge, flies across screen, then despawns. Does NOT wrap. | High damage + burn aura. Massive HP. Fast. The "Boss" encounter. |
-
-### Difficulty Gates
-*   **Level 1:** Tutorial Phase. Small/Medium rocks only. Slow physics.
-*   **Level 2:** Large Asteroids appear. Formations enabled.
-*   **Level 3:** Small Molten Asteroids (Flybys) start appearing.
-*   **Level 6:** Giant Molten Asteroids appear (Requires Heavy Weapons/Shield).
-
----
-
-## 5. Technical Details
-
-### Rendering
-*   **Engine:** HTML5 Canvas + React Ref-based loop.
-*   **Simulation:** Fixed 60 Hz updates with bounded catch-up; independent rendering uses the latest state. Upgrade menus, hidden tabs, and focus loss suspend gameplay time.
-*   **Juice (Game Feel):**
-    *   **Screen Shake:** On impacts and explosions.
-    *   **Hit Flash:** Entities flash white when damaged.
-    *   **Particles:** Sparks on thrust, impact, and destruction.
-    *   **Floating Text:** Damage numbers and resource pickups.
-
-### Collision Detection
-*   **Ship:** Triangle edges and containment against a circle at 85% of the asteroid's visual radius.
-*   **Bullets:** Swept circle contacts select the earliest asteroid/shard impact; shards retain their defensive collision radius and win equal-time ties.
-
-See [README.md](README.md) for the engine module map, validation commands, intentional timing/contact corrections, remaining risks, and browser verification limits. Follow [.agent/rules/rules.md](.agent/rules/rules.md) for the `main` development and automatic GitHub publication workflow.
+See [README.md](README.md) for the lab, exact weapon changes, module map, checks and verification limits. See [.agent/rules/rules.md](.agent/rules/rules.md) for the `main` development and automatic validate/commit/push workflow.
