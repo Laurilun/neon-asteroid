@@ -23,7 +23,7 @@ describe('swept circle geometry', () => {
   });
 });
 
-describe('contact geometry', () => {
+describe('ship triangle contacts', () => {
   const a = { x: 10, y: 0 }, b = { x: -6, y: 7.5 }, c = { x: -6, y: -7.5 };
   it('detects a circle touching an edge without touching any vertex or the center', () => {
     expect(triangleCircleOverlap(a, b, c, { x: 2, y: 4.5 }, 1)).toBe(true);
@@ -34,12 +34,12 @@ describe('contact geometry', () => {
     expect(triangleCircleOverlap(a, b, c, { x: 0, y: 0 }, 100)).toBe(true);
     expect(triangleCircleOverlap(a, b, c, { x: 20, y: 0 }, 1)).toBe(false);
   });
-  it('transforms armored ship rotation and includes its forward cannon', () => {
+  it('transforms ship rotation and preserves the forgiving asteroid contact radius', () => {
     const ship = makeShip(), rock = makeAsteroid('rock', 100, 1);
     ship.rotation = Math.PI / 2;
     rock.pos.y = 114.5;
     expect(checkShipCollision(ship, rock)).toBe(true);
-    rock.pos.y = 117;
+    rock.pos.y = 115;
     expect(checkShipCollision(ship, rock)).toBe(false);
   });
   it('does not treat a degenerate triangle as containing every point', () => {

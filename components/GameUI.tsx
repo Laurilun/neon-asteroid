@@ -1,8 +1,7 @@
 
 import React from 'react';
-import { batteryMultiplier } from '../game/gunship';
 import { GameState, Ship, UpgradeCategory, UpgradeDef } from '../types';
-import { UPGRADES, SHIELD_RECHARGE_TIME, ORB_MAGNET_RANGE_BASE, SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER, SHIELD_RADIATION_BASE_RADIUS, SHIELD_RADIATION_RADIUS_PER_TIER, BULLET_DAMAGE, BULLET_LIFE, BULLET_RATE, BULLET_SPEED, UPGRADE_RANGE_MULT } from '../constants';
+import { UPGRADES, SHIELD_RECHARGE_TIME, ORB_MAGNET_RANGE_BASE, SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER, SHIELD_RADIATION_BASE_RADIUS, SHIELD_RADIATION_RADIUS_PER_TIER, BULLET_DAMAGE, BULLET_LIFE, BULLET_RATE } from '../constants';
 
 interface GameUIProps {
     gameState: GameState;
@@ -193,7 +192,7 @@ const GameUI: React.FC<GameUIProps> = ({
                                         <div className={`bg-orange-400 w-3 h-3 rounded-full shadow-md transform transition-transform duration-300 absolute top-1 ${isSandbox ? 'left-6' : 'left-1'}`}></div>
                                     </div>
                                 </button>
-                                <div className="text-gray-600 text-[10px] mt-1">Opens the Mass / Mayhem experiment console</div>
+                                <div className="text-gray-600 text-[10px] mt-1">Spawns test asteroids with infinite HP</div>
                             </div>
                         </div>
                     )}
@@ -345,7 +344,7 @@ const GameUI: React.FC<GameUIProps> = ({
                                         <div className="text-gray-500 uppercase tracking-widest text-[10px] mb-2">Main Weapon</div>
                                         <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                             <span className="text-gray-500">DAMAGE</span>
-                                            <span className="text-red-400 font-bold">{Math.round(BULLET_DAMAGE * ship.stats.damageMult * batteryMultiplier(ship.stats.multishotTier))}</span>
+                                            <span className="text-red-400 font-bold">{Math.round(BULLET_DAMAGE * ship.stats.damageMult)}</span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                             <span className="text-gray-500">FIRE RATE</span>
@@ -353,12 +352,12 @@ const GameUI: React.FC<GameUIProps> = ({
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                             <span className="text-gray-500">RANGE</span>
-                                            <span className="text-red-400 font-bold">{Math.round(BULLET_LIFE * (1 + ship.stats.rangeTier * UPGRADE_RANGE_MULT) * BULLET_SPEED)}px</span>
+                                            <span className="text-red-400 font-bold">{Math.round(BULLET_LIFE * (1 + ship.stats.rangeTier * 0.25) * 8)}px</span>
                                         </div>
                                         {ship.stats.multishotTier > 0 && (
                                             <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                                 <span className="text-gray-500">BARRELS</span>
-                                                <span className="text-red-400 font-bold">{Math.min(6, ship.stats.multishotTier + 1)}</span>
+                                                <span className="text-red-400 font-bold">{ship.stats.multishotTier + 1}</span>
                                             </div>
                                         )}
                                         {ship.stats.ricochetTier > 0 && (
@@ -534,7 +533,7 @@ const GameUI: React.FC<GameUIProps> = ({
         <>
             {renderHUD()}
             {isDevMode && (
-                <div className="absolute top-12 right-4 text-right pointer-events-none z-50">
+                <div className="absolute top-4 right-4 text-right pointer-events-none z-50">
                     <div className="text-xs text-cyan-500 mb-1 font-bold animate-pulse">DEV MODE ACTIVE</div>
                 </div>
             )}
