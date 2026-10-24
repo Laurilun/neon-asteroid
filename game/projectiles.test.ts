@@ -23,13 +23,13 @@ describe('player weapon', () => {
     expect(weapon.step(ship, bullets)).toBe(false);
   });
 
-  it.each([[0, 1], [1, 2], [2, 3], [3, 4], [8, 9]])('preserves multishot tier %i with %i projectiles and total damage', (tier, count) => {
+  it.each([[0, 1], [1, 2], [2, 3], [3, 4], [8, 6]])('equips tier %i with %i full-power mounted projectiles', (tier, count) => {
     const weapon = new PlayerWeapon(), ship = makeShip(), bullets: Bullet[] = [];
     ship.stats.multishotTier = tier;
     ship.stats.ricochetTier = 2;
     for (let i = 0; i < BULLET_RATE; i++) weapon.step(ship, bullets, () => 0.5);
     expect(bullets).toHaveLength(count);
-    expect(bullets.reduce((total, b) => total + b.damage, 0)).toBeCloseTo(BULLET_DAMAGE * (1 + tier * 0.3));
+    expect(bullets.reduce((total, b) => total + b.damage, 0)).toBeCloseTo(BULLET_DAMAGE * count * (1 + Math.max(0, tier - 5) * .12));
     expect(bullets.every(b => b.bouncesRemaining === 2)).toBe(true);
     expect(bullets[0].angle).toBeCloseTo(-bullets.at(-1)!.angle);
   });
@@ -150,7 +150,7 @@ describe('projectile lifecycle and impacts', () => {
     bullet.isRicochet = true;
     bullet.trail = [];
     for (let i = 0; i < 12; i++) advanceProjectiles([bullet], bounds);
-    expect(bullet.trail).toHaveLength(8);
+    expect(bullet.trail).toHaveLength(7);
     expect(bullet.trail.at(-1)?.x).toBe(11);
     bullet.life = 0;
     advanceProjectiles([bullet], bounds);
