@@ -34,12 +34,12 @@ describe('ship triangle contacts', () => {
     expect(triangleCircleOverlap(a, b, c, { x: 0, y: 0 }, 100)).toBe(true);
     expect(triangleCircleOverlap(a, b, c, { x: 20, y: 0 }, 1)).toBe(false);
   });
-  it('includes the rotated physical cannon in the ship footprint', () => {
+  it('transforms ship rotation and preserves the forgiving asteroid contact radius', () => {
     const ship = makeShip(), rock = makeAsteroid('rock', 100, 1);
     ship.rotation = Math.PI / 2;
-    rock.pos.y = 117;
+    rock.pos.y = 114.5;
     expect(checkShipCollision(ship, rock)).toBe(true);
-    rock.pos.y = 118.5;
+    rock.pos.y = 115;
     expect(checkShipCollision(ship, rock)).toBe(false);
   });
   it('does not treat a degenerate triangle as containing every point', () => {

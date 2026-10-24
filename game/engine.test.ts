@@ -116,7 +116,7 @@ describe('simulation integration', () => {
 
   it.each([30, 120, 144, 240])('preserves movement, fire cadence and projectile lifetime at %i Hz', hz => {
     expect(run(hz)).toEqual(run(60));
-    expect(run(hz).shots).toBe(10);
+    expect(run(hz).shots).toBe(9);
   });
 
   it('keeps cooldown, shield timer and invulnerability frozen across an upgrade pause', () => {
@@ -135,9 +135,9 @@ describe('simulation integration', () => {
     expect(ship.stats.shieldRechargeTimer).toBe(timer);
     expect(clock.timeMs).toBeLessThan(ship.invulnerableUntil);
     expect(bullets).toEqual([]);
-    // Only the remaining 15 simulation ticks complete the 18-tick cooldown.
-    for (let i = 1; i <= 15; i++) clock.advance(60_010 + i * TARGET_FRAME_MS, true, step);
+    // Only the remaining 17 simulation ticks complete the original 20-tick cooldown.
+    for (let i = 1; i <= 17; i++) clock.advance(60_010 + i * TARGET_FRAME_MS, true, step);
     expect(bullets).toHaveLength(1);
-    expect(ship.stats.shieldRechargeTimer).toBeCloseTo(18 * TARGET_FRAME_MS);
+    expect(ship.stats.shieldRechargeTimer).toBeCloseTo(20 * TARGET_FRAME_MS);
   });
 });
