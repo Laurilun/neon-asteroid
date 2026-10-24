@@ -2,6 +2,7 @@
 import React from 'react';
 import { GameState, Ship, UpgradeCategory, UpgradeDef } from '../types';
 import { UPGRADES, SHIELD_RECHARGE_TIME, ORB_MAGNET_RANGE_BASE, SHIELD_RADIATION_BASE_DPS, SHIELD_RADIATION_DPS_PER_TIER, SHIELD_RADIATION_BASE_RADIUS, SHIELD_RADIATION_RADIUS_PER_TIER, BULLET_DAMAGE, BULLET_LIFE, BULLET_RATE } from '../constants';
+import { batteryDamageMultiplier } from '../game/hardware';
 
 interface GameUIProps {
     gameState: GameState;
@@ -186,13 +187,13 @@ const GameUI: React.FC<GameUIProps> = ({
                                     className="flex items-center gap-3 w-full justify-between"
                                 >
                                     <span className={`text-xs font-bold uppercase tracking-widest ${isSandbox ? 'text-orange-400' : 'text-gray-500'}`}>
-                                        Sandbox Mode
+                                        Game-Feel Lab
                                     </span>
                                     <div className={`w-10 h-5 rounded-full p-1 transition-colors duration-300 relative ${isSandbox ? 'bg-orange-900' : 'bg-gray-700'}`}>
                                         <div className={`bg-orange-400 w-3 h-3 rounded-full shadow-md transform transition-transform duration-300 absolute top-1 ${isSandbox ? 'left-6' : 'left-1'}`}></div>
                                     </div>
                                 </button>
-                                <div className="text-gray-600 text-[10px] mt-1">Spawns test asteroids with infinite HP</div>
+                                <div className="text-gray-600 text-[10px] mt-1">Live handling, weapons, materials and repeatable destruction</div>
                             </div>
                         </div>
                     )}
@@ -343,8 +344,8 @@ const GameUI: React.FC<GameUIProps> = ({
                                     <div className="space-y-1 text-xs font-mono">
                                         <div className="text-gray-500 uppercase tracking-widest text-[10px] mb-2">Main Weapon</div>
                                         <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
-                                            <span className="text-gray-500">DAMAGE</span>
-                                            <span className="text-red-400 font-bold">{Math.round(BULLET_DAMAGE * ship.stats.damageMult)}</span>
+                                            <span className="text-gray-500">DAMAGE / ROUND</span>
+                                            <span className="text-red-400 font-bold">{Math.round(BULLET_DAMAGE * ship.stats.damageMult * batteryDamageMultiplier(ship.stats.multishotTier))}</span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                             <span className="text-gray-500">FIRE RATE</span>
@@ -357,7 +358,7 @@ const GameUI: React.FC<GameUIProps> = ({
                                         {ship.stats.multishotTier > 0 && (
                                             <div className="flex justify-between items-center p-2 rounded hover:bg-white/5">
                                                 <span className="text-gray-500">BARRELS</span>
-                                                <span className="text-red-400 font-bold">{ship.stats.multishotTier + 1}</span>
+                                                <span className="text-red-400 font-bold">{Math.min(7, ship.stats.multishotTier + 1)}</span>
                                             </div>
                                         )}
                                         {ship.stats.ricochetTier > 0 && (

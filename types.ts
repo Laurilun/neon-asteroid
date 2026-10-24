@@ -55,6 +55,11 @@ export interface ShipStats {
 }
 
 export interface Ship extends Entity {
+  angularVelocity?: number;
+  throttle?: number;
+  steeringJet?: number;
+  cannonRecoil?: number;
+  cannonHeat?: number;
   rotation: number; // Current rotation angle
   thrusting: boolean;
   hull: number;
@@ -76,6 +81,10 @@ export interface FractureData {
 }
 
 export interface Asteroid extends Entity {
+  surface?: { vertices: Vector[]; offset: Vector; radius: number }; // Shared parent material coordinates after a cut.
+  impactDirection?: Vector;
+  scars?: Vector[]; // Contact points in local space; capped at five.
+  nearMissed?: boolean;
   vertices: Vector[]; // For jagged polygon rendering
   hp: number;
   maxHp: number; // Starting HP for damage percentage calculation
@@ -112,6 +121,8 @@ export interface TungstenShard extends Entity {
 }
 
 export interface Bullet extends Entity {
+  railTier?: number;
+  mountIndex?: number;
   previousPos?: Vector; // Start of the current simulation step's swept segment
   life: number;
   damage: number; // Snapshot damage at time of firing
@@ -126,7 +137,7 @@ export interface Particle extends Entity {
   life: number;
   maxLife: number;
   decay: number;
-  variant?: 'THRUST' | 'DEBRIS' | 'SHOCKWAVE' | 'SHELL';
+  variant?: 'THRUST' | 'DEBRIS' | 'SHOCKWAVE';
 }
 
 export interface ExpOrb extends Entity {

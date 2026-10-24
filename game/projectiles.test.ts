@@ -3,6 +3,7 @@ import { BULLET_DAMAGE, BULLET_LIFE, BULLET_RATE, BULLET_SPEED } from '../consta
 import type { Bullet } from '../types';
 import { advanceProjectiles, findProjectileHit, PlayerWeapon, resolveProjectileHits, retireProjectiles } from './projectiles';
 import { makeAsteroid, makeBullet, makeShard, makeShip } from './testFixtures';
+import { batteryDamageMultiplier, cannonMounts, mountPosition } from './hardware';
 
 const bounds = { width: 800, height: 600 };
 
@@ -23,15 +24,27 @@ describe('player weapon', () => {
     expect(weapon.step(ship, bullets)).toBe(false);
   });
 
-  it.each([[0, 1], [1, 2], [2, 3], [3, 4], [8, 9]])('preserves multishot tier %i with %i projectiles and total damage', (tier, count) => {
+  it.each([[0, 1], [1, 2], [2, 3], [3, 4], [6, 7], [8, 7]])('gives tier %i a legible battery of %i full-strength rounds', (tier, count) => {
     const weapon = new PlayerWeapon(), ship = makeShip(), bullets: Bullet[] = [];
     ship.stats.multishotTier = tier;
     ship.stats.ricochetTier = 2;
     for (let i = 0; i < BULLET_RATE; i++) weapon.step(ship, bullets, () => 0.5);
     expect(bullets).toHaveLength(count);
-    expect(bullets.reduce((total, b) => total + b.damage, 0)).toBeCloseTo(BULLET_DAMAGE * (1 + tier * 0.3));
+    expect(bullets.every(b => b.damage >= BULLET_DAMAGE)).toBe(true);
+    expect(bullets.reduce((total, b) => total + b.damage, 0)).toBeCloseTo(BULLET_DAMAGE * count * batteryDamageMultiplier(tier));
     expect(bullets.every(b => b.bouncesRemaining === 2)).toBe(true);
-    expect(bullets[0].angle).toBeCloseTo(-bullets.at(-1)!.angle);
+    expect(bullets.every(b => b.angle === ship.rotation)).toBe(true);
+    expect(new Set(bullets.map(b => b.pos.y)).size).toBe(count);
+  });
+
+  it.each([0, 1, 2, 6, 12])('fires from the rendered hardpoints at tier %i after rotation', tier => {
+    const ship = makeShip(), weapon = new PlayerWeapon(), bullets: Bullet[] = [];
+    ship.rotation = 1.234; ship.stats.multishotTier = tier;
+    for (let i = 0; i < BULLET_RATE; i++) weapon.step(ship, bullets);
+    for (const [i, mount] of cannonMounts(tier).entries()) {
+      expect(bullets[i].pos).toEqual(mountPosition(ship, mount));
+      expect(bullets[i].mountIndex).toBe(i);
+    }
   });
 
   it('keeps the minimum four-tick cooldown at extreme fire-rate upgrades', () => {

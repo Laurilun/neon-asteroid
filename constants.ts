@@ -15,10 +15,10 @@ export const FPS = 60;
 // SHIP - Player ship physics and base stats
 // ============================================================================
 
-export const SHIP_SIZE = 14;                    // Ship triangle size in pixels
-export const SHIP_THRUST = 0.045;               // Acceleration per frame when thrusting
-export const SHIP_TURN_SPEED = 0.045;           // Rotation speed in radians per frame
-export const SHIP_FRICTION = 0.99;              // Velocity multiplier per frame (1 = no friction)
+export const SHIP_SIZE = 19;                    // Armored hull circumradius in pixels
+export const SHIP_THRUST = 0.09;                // Acceleration per fixed tick
+export const SHIP_TURN_SPEED = 0.055;            // Maximum angular velocity per tick
+export const SHIP_FRICTION = 0.996;             // Momentum retained per tick
 export const SHIP_MAX_SPEED = 7.0;              // Maximum velocity magnitude
 export const SHIP_BASE_HULL = 100;              // Starting hull points
 
@@ -397,7 +397,7 @@ export const MAX_PARTICLES = 150;               // Max debris/thrust particles
 export const MAX_XP_ORBS = 100;                 // Max XP orbs on screen
 export const MAX_HULL_ORBS = 20;                // Max hull orbs on screen
 export const MAX_FLOATING_TEXT = 15;            // Max damage/XP numbers
-export const MAX_BULLETS = 100;                 // Max bullets on screen
+export const MAX_BULLETS = 256;                 // Seven-barrel batteries plus rails/ricochets, still bounded
 export const MAX_FREEBIE_ORBS = 20;             // Rare upgrade drops must not accumulate forever
 export const MAX_SHARDS = 80;                    // Defensive shards/projectiles across all Tungsten asteroids
 export const MAX_ASTEROIDS = 120;                // Absolute safety ceiling for a long endless run
@@ -461,7 +461,7 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'multishot',
         name: 'Split Shot',
-        description: (t) => `+1 Barrel, DMG Split (${Math.floor((1 + t * 0.3) / (t + 1) * 100)}% each, ${Math.floor((1 + t * 0.3) * 100)}% total)`,
+        description: (t) => t <= 6 ? `${t + 1} physical cannons. Each fires a full-strength round in a parallel battery.` : `7 cannons. Reinforced battery: +${(t - 6) * 20}% damage per round.`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
