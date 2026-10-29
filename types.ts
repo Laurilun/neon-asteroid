@@ -55,11 +55,9 @@ export interface ShipStats {
 }
 
 export interface Ship extends Entity {
-  angularVelocity?: number;
-  throttle?: number;
-  steeringJet?: number;
-  cannonRecoil?: number;
-  cannonHeat?: number;
+  angularVelocity: number; // Radians per fixed tick
+  throttle: number; // Engine spool, 0..1
+  steering: number; // RCS command, -1..1
   rotation: number; // Current rotation angle
   thrusting: boolean;
   hull: number;
@@ -81,10 +79,9 @@ export interface FractureData {
 }
 
 export interface Asteroid extends Entity {
-  surface?: { vertices: Vector[]; offset: Vector; radius: number }; // Shared parent material coordinates after a cut.
-  impactDirection?: Vector;
-  scars?: Vector[]; // Contact points in local space; capped at five.
-  nearMissed?: boolean;
+  impactDirection?: Vector; // Most recent projectile momentum, used by breakup
+  scars?: { pos: Vector; angle: number; strength: number }[]; // Local-space damage marks
+  labTarget?: boolean;
   vertices: Vector[]; // For jagged polygon rendering
   hp: number;
   maxHp: number; // Starting HP for damage percentage calculation
@@ -121,8 +118,8 @@ export interface TungstenShard extends Entity {
 }
 
 export interface Bullet extends Entity {
-  railTier?: number;
-  mountIndex?: number;
+  mountId?: number;
+  powerTier?: number;
   previousPos?: Vector; // Start of the current simulation step's swept segment
   life: number;
   damage: number; // Snapshot damage at time of firing
@@ -180,6 +177,7 @@ export enum GameState {
   PLAYING,
   LEVEL_UP,
   GAME_OVER,
+  PAUSED,
 }
 
 export enum UpgradeCategory {

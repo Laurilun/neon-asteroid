@@ -5,35 +5,49 @@ import {
 import { EntityType } from '../types';
 import type { Asteroid, Bullet, Ship, ShipStats, TungstenShard } from '../types';
 import { advancePeriodicTimer } from './engine';
-import { segmentCircleHit, segmentPolygonHit, toRockLocal } from './collision';
+import { segmentCircleHit, sweptCirclePolygonHit } from './collision';
 import type { Bounds } from './movement';
-import { batteryDamageMultiplier, cannonMounts, mountPosition } from './hardware';
+import { localToWorld, weaponMounts } from './geometry';
+import { applyProjectileImpulse } from './asteroids';
 
 type Random = () => number;
+
+export const weaponInterval = (stats: ShipStats): number => Math.max(4, Math.floor(BULLET_RATE * stats.fireRateMult));
+export const cannonDamage = (stats: ShipStats): number => BULLET_DAMAGE *
+  (weaponMounts(stats.multishotTier).length === 1 ? 1 : 0.8) * stats.damageMult *
+  (1 + Math.max(0, stats.multishotTier - 7) * 0.08);
 
 /** Owns the player's cooldown and volley rules. Randomness is injectable for tests. */
 export class PlayerWeapon {
   private timer = 0;
   reset(): void { this.timer = 0; }
 
-  step(ship: Ship, bullets: Bullet[], random: Random = Math.random): boolean {
+  step(ship: Ship, bullets: Bullet[], random: Random = Math.random, onFire?: (bullet: Bullet) => void): boolean {
     if (ship.toBeRemoved) return false;
     const stats = ship.stats;
-    const tick = advancePeriodicTimer(this.timer, 1, Math.max(4, Math.floor(BULLET_RATE * stats.fireRateMult)));
+    const tick = advancePeriodicTimer(this.timer, 1, weaponInterval(stats));
     this.timer = tick.timer;
     if (!tick.elapsed) return false;
-    const damage = BULLET_DAMAGE * batteryDamageMultiplier(stats.multishotTier) * stats.damageMult;
-    for (const mount of cannonMounts(stats.multishotTier)) {
-      const life = BULLET_LIFE * (1 + stats.rangeTier * UPGRADE_RANGE_MULT);
-      const angle = ship.rotation; // Parallel battery: added barrels do not throw damage off target.
-      bullets.push({
+    const mounts = weaponMounts(stats.multishotTier);
+    // Adding a barrel keeps 80% of a full cannon's damage, instead of dividing
+    // the old volley into weaker specks. Beyond the readable battery cap, reinforce it.
+    const damage = cannonDamage(stats);
+    for (const mount of mounts) {
+      const life = BULLET_LIFE * (1 + stats.rangeTier * UPGRADE_RANGE_MULT) + random() * 6 - 3;
+      const angle = ship.rotation + mount.angle + (random() - 0.5) * 0.006;
+      const bullet: Bullet = {
         id: random().toString(), type: EntityType.Bullet,
-        pos: mountPosition(ship, mount),
+        pos: localToWorld(mount, ship.pos, ship.rotation, ship.radius),
         vel: { x: Math.cos(angle) * BULLET_SPEED + ship.vel.x * 0.2, y: Math.sin(angle) * BULLET_SPEED + ship.vel.y * 0.2 },
         radius: BULLET_RADIUS, angle, color: COLORS.BULLET, toBeRemoved: false,
-        life, damage, bouncesRemaining: stats.ricochetTier, railTier: stats.rangeTier, mountIndex: mount.index,
-      });
+        life, damage, bouncesRemaining: stats.ricochetTier, mountId: mount.id, powerTier: stats.rangeTier,
+      };
+      bullets.push(bullet);
+      onFire?.(bullet);
     }
+    const recoil = 0.025 * Math.sqrt(mounts.length);
+    ship.vel.x -= Math.cos(ship.rotation) * recoil;
+    ship.vel.y -= Math.sin(ship.rotation) * recoil;
     return true;
   }
 }
@@ -48,9 +62,10 @@ export function advanceProjectiles(bullets: Bullet[], bounds: Bounds): void {
     }
     if (b.previousPos) { b.previousPos.x = b.pos.x; b.previousPos.y = b.pos.y; }
     else b.previousPos = { ...b.pos };
+    if (!b.trail) b.trail = [];
     if (b.trail) {
       b.trail.push({ ...b.pos });
-      if (b.trail.length > 8) b.trail.shift();
+      if (b.trail.length > (b.isRicochet ? 8 : 4)) b.trail.shift();
     }
     let travel = Math.min(1, b.life);
     if (b.vel.x > 0) travel = Math.min(travel, (bounds.width - b.pos.x) / b.vel.x);
@@ -87,7 +102,12 @@ export function findProjectileHit(b: Bullet, asteroids: Asteroid[], shards: Tung
     if (asteroid.toBeRemoved || asteroid.id === source) continue;
     let t = segmentCircleHit(start, b.pos, asteroid.pos, asteroid.radius + b.radius);
     if (t !== null && asteroid.vertices.length >= 3) {
-      t = segmentPolygonHit(toRockLocal(start, asteroid), toRockLocal(b.pos, asteroid), asteroid.vertices, b.radius);
+      const cos = Math.cos(asteroid.rotation), sin = Math.sin(asteroid.rotation);
+      const transform = (p: { x: number; y: number }) => ({
+        x: (p.x - asteroid.pos.x) * cos + (p.y - asteroid.pos.y) * sin,
+        y: -(p.x - asteroid.pos.x) * sin + (p.y - asteroid.pos.y) * cos,
+      });
+      t = sweptCirclePolygonHit(transform(start), transform(b.pos), asteroid.vertices, b.radius);
     }
     if (t !== null && t < nearest) {
       nearest = t;
@@ -100,7 +120,7 @@ export function findProjectileHit(b: Bullet, asteroids: Asteroid[], shards: Tung
 function spawnRicochet(b: Bullet, source: Asteroid, asteroids: Asteroid[], bullets: Bullet[], stats: ShipStats, random: Random): void {
   if (b.bouncesRemaining <= 0) return;
   // Preserve the existing ricochet range and ability to revisit older chain members.
-  const life = BULLET_LIFE * (1 + stats.rangeTier * 0.25) * 0.7;
+  const life = BULLET_LIFE * (1 + stats.rangeTier * UPGRADE_RANGE_MULT) * 0.7;
   const range = life * BULLET_SPEED;
   // Reservoir sampling chooses uniformly without allocating a target array.
   let target: Asteroid | null = null;
@@ -122,6 +142,7 @@ function spawnRicochet(b: Bullet, source: Asteroid, asteroids: Asteroid[], bulle
     toBeRemoved: false, life, damage: b.damage * 0.5, bouncesRemaining: b.bouncesRemaining - 1,
     hitChainIds: [...(b.hitChainIds ?? []), source.id], isRicochet: true,
     bounceDepth: depth, trail: [{ ...b.pos }],
+    powerTier: b.powerTier,
   });
 }
 
@@ -144,23 +165,8 @@ export function resolveProjectileHits(
     b.pos.y = start.y + (b.pos.y - start.y) * hit.fraction;
     b.toBeRemoved = true;
     hit.target.hp -= b.damage;
-    const speed = Math.hypot(b.vel.x, b.vel.y) || 1;
-    const direction = { x: b.vel.x / speed, y: b.vel.y / speed };
-    const dense = hit.target.type === EntityType.TungstenAsteroid ? 2.4 : hit.target.type === EntityType.IronAsteroid ? 1.7 : 1;
-    const impulse = Math.min(.8, b.damage * .035 / (Math.max(1, (hit.target.radius / 18) ** 2) * dense));
-    hit.target.vel.x += direction.x * impulse;
-    hit.target.vel.y += direction.y * impulse;
-    if (hit.kind === 'asteroid') {
-      const target = hit.target;
-      target.impactDirection = direction;
-      const dx = b.pos.x - target.pos.x, dy = b.pos.y - target.pos.y;
-      const c = Math.cos(target.rotation), s = Math.sin(target.rotation);
-      target.scars ??= [];
-      if (target.scars.length === 5) target.scars.shift();
-      target.scars.push({ x: dx * c + dy * s, y: -dx * s + dy * c });
-      target.rotationSpeed = Math.max(-.035, Math.min(.035, target.rotationSpeed + (dx * direction.y - dy * direction.x) * impulse / (target.radius ** 2 + 1)));
-    }
     hit.target.hitFlash = HIT_FLASH_FRAMES;
+    if (hit.kind === 'asteroid') applyProjectileImpulse(hit.target, b);
     hit.destroyed = hit.target.hp <= 0;
     if (hit.kind === 'shard' && hit.destroyed) {
       hit.target.toBeRemoved = true;

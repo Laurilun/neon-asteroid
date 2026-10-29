@@ -1,5 +1,5 @@
 import type { Asteroid, Ship, Vector } from '../types';
-import { SHIP_HULL } from './hardware';
+import { localToWorld, SHIP_HULL, weaponMounts } from './geometry';
 
 /** Earliest swept point/circle contact, as a fraction of the segment. */
 export function segmentCircleHit(start: Vector, end: Vector, center: Vector, radius: number): number | null {
@@ -29,82 +29,143 @@ export function triangleCircleOverlap(a: Vector, b: Vector, c: Vector, center: V
 }
 
 export function checkShipCollision(ship: Ship, asteroid: Asteroid): boolean {
-  // Keep the existing forgiving 85% asteroid hull-contact radius.
+  // Legacy circular fixtures retain their forgiving radius; live rocks use their polygons.
   const hitRadius = asteroid.radius * 0.85;
   const dx = ship.pos.x - asteroid.pos.x, dy = ship.pos.y - asteroid.pos.y;
-  if (dx * dx + dy * dy > (ship.radius + asteroid.radius) ** 2) return false;
+  const bound = asteroid.vertices.length >= 3 ? asteroid.radius : hitRadius;
+  if (dx * dx + dy * dy > (ship.radius * 1.3 + bound) ** 2) return false;
   const cos = Math.cos(ship.rotation), sin = Math.sin(ship.rotation);
-  const point = (x: number, y: number): Vector => ({
-    x: ship.pos.x + x * cos - y * sin,
-    y: ship.pos.y + x * sin + y * cos,
-  });
   if (asteroid.vertices.length >= 3) {
-    // Use actual cut faces after fracture. Slightly inset the rock for arcade forgiveness.
-    const local = (v: Vector) => toRockLocal(v, asteroid, .96);
-    for (let i = 0; i < SHIP_HULL.length; i++) {
-      const a = SHIP_HULL[i], b = SHIP_HULL[(i + 1) % SHIP_HULL.length];
-      if (segmentPolygonHit(local(point(a.x * ship.radius, a.y * ship.radius)),
-        local(point(b.x * ship.radius, b.y * ship.radius)), asteroid.vertices, 0) !== null) return true;
+    const cosA = Math.cos(asteroid.rotation), sinA = Math.sin(asteroid.rotation);
+    const transform = (v: Vector): Vector => {
+      const world = localToWorld(v, ship.pos, ship.rotation, ship.radius);
+      const x = world.x - asteroid.pos.x, y = world.y - asteroid.pos.y;
+      return { x: x * cosA + y * sinA, y: -x * sinA + y * cosA };
+    };
+    if (polygonsOverlap(SHIP_HULL.map(transform), asteroid.vertices)) return true;
+    for (const m of weaponMounts(ship.stats.multishotTier)) {
+      if (polygonsOverlap([
+        { x: m.x - 0.55, y: m.y - 0.085 }, { x: m.x, y: m.y - 0.085 },
+        { x: m.x, y: m.y + 0.085 }, { x: m.x - 0.55, y: m.y + 0.085 },
+      ].map(transform), asteroid.vertices)) return true;
     }
-    const v = asteroid.vertices[0], c = Math.cos(asteroid.rotation), s = Math.sin(asteroid.rotation);
-    const world = { x: asteroid.pos.x + .96 * (v.x * c - v.y * s), y: asteroid.pos.y + .96 * (v.x * s + v.y * c) };
-    const dx = world.x - ship.pos.x, dy = world.y - ship.pos.y;
-    return pointInPolygon({ x: (dx * cos + dy * sin) / ship.radius, y: (-dx * sin + dy * cos) / ship.radius }, SHIP_HULL);
+    return false;
   }
-  for (let i = 0; i < SHIP_HULL.length; i++) {
-    const a = SHIP_HULL[i], b = SHIP_HULL[(i + 1) % SHIP_HULL.length];
-    if (triangleCircleOverlap(ship.pos, point(a.x * ship.radius, a.y * ship.radius),
-      point(b.x * ship.radius, b.y * ship.radius), asteroid.pos, hitRadius)) return true;
+  // Transform one target into local space rather than allocating a world polygon.
+  const local = { x: (-dx * cos - dy * sin) / ship.radius, y: (dx * sin - dy * cos) / ship.radius };
+  if (polygonCircleOverlap(SHIP_HULL, local, hitRadius / ship.radius)) return true;
+  // The actual visible barrels participate in the footprint too.
+  for (const mount of weaponMounts(ship.stats.multishotTier)) {
+    const x = Math.max(mount.x - 0.55, Math.min(mount.x, local.x));
+    const y = Math.max(mount.y - 0.085, Math.min(mount.y + 0.085, local.y));
+    if ((local.x - x) ** 2 + (local.y - y) ** 2 <= (hitRadius / ship.radius) ** 2) return true;
   }
   return false;
 }
 
-export function toRockLocal(point: Vector, rock: Asteroid, scale = 1): Vector {
-  const dx = point.x - rock.pos.x, dy = point.y - rock.pos.y;
-  const c = Math.cos(rock.rotation), s = Math.sin(rock.rotation);
-  return { x: (dx * c + dy * s) / scale, y: (-dx * s + dy * c) / scale };
-}
-export function pointInPolygon(point: Vector, polygon: readonly Vector[]): boolean {
+function pointInPolygon(point: Vector, vertices: readonly Vector[]): boolean {
   let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const a = polygon[i], b = polygon[j];
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const a = vertices[j], b = vertices[i];
     if ((a.y > point.y) !== (b.y > point.y) && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
   }
   return inside;
 }
-/** Swept circle against polygon edges (capsules), including concave cut outlines. */
-export function segmentPolygonHit(start: Vector, end: Vector, polygon: readonly Vector[], radius: number): number | null {
-  if (pointInPolygon(start, polygon)) return 0;
+
+export function polygonsOverlap(a: readonly Vector[], b: readonly Vector[]): boolean {
+  if (a.length < 3 || b.length < 3) return false;
+  if (pointInPolygon(a[0], b) || pointInPolygon(b[0], a)) return true;
+  for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) {
+    const p = a[i], q = a[(i + 1) % a.length], r = b[j], s = b[(j + 1) % b.length];
+    const dx = q.x - p.x, dy = q.y - p.y, ex = s.x - r.x, ey = s.y - r.y;
+    const determinant = dx * ey - dy * ex;
+    if (Math.abs(determinant) < 1e-9) {
+      if (segmentCircleHit(p, q, r, 1e-7) !== null || segmentCircleHit(p, q, s, 1e-7) !== null) return true;
+      continue;
+    }
+    const t = ((r.x - p.x) * ey - (r.y - p.y) * ex) / determinant;
+    const u = ((r.x - p.x) * dy - (r.y - p.y) * dx) / determinant;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return true;
+  }
+  return false;
+}
+
+/** Swept projectile vs a polygon inflated by its radius (edge capsules + interior).
+ * Narrow phase runs only after the bounding-circle test, including clipped fragments.
+ */
+export function sweptCirclePolygonHit(start: Vector, end: Vector, vertices: readonly Vector[], radius: number): number | null {
+  if (polygonCircleOverlap(vertices, start, radius)) return 0;
   let nearest = Infinity;
-  const dx = end.x - start.x, dy = end.y - start.y;
-  for (let i = 0; i < polygon.length; i++) {
-    const a = polygon[i], b = polygon[(i + 1) % polygon.length];
-    const vertexHit = segmentCircleHit(start, end, a, radius);
-    if (vertexHit !== null) nearest = Math.min(nearest, vertexHit);
-    const ex = b.x - a.x, ey = b.y - a.y, length = Math.hypot(ex, ey);
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i], b = vertices[(i + 1) % vertices.length];
+    const hit = segmentCircleHit(start, end, a, radius);
+    if (hit !== null) nearest = Math.min(nearest, hit);
+    const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
     if (length < 1e-8) continue;
-    const tx = ex / length, ty = ey / length, nx = -ty, ny = tx;
-    const sx = start.x - a.x, sy = start.y - a.y;
-    const distance = sx * nx + sy * ny, speed = dx * nx + dy * ny;
-    const projection = sx * tx + sy * ty;
-    if (Math.abs(distance) <= radius && projection >= 0 && projection <= length) return 0;
-    if (Math.abs(speed) < 1e-10) continue;
+    const nx = -dy / length, ny = dx / length;
+    const initial = (start.x - a.x) * nx + (start.y - a.y) * ny;
+    const velocity = (end.x - start.x) * nx + (end.y - start.y) * ny;
+    if (Math.abs(velocity) < 1e-9) continue;
     for (const side of [-1, 1]) {
-      const time = (side * radius - distance) / speed;
-      if (time < 0 || time > 1) continue;
-      const along = projection + time * (dx * tx + dy * ty);
-      if (along >= 0 && along <= length) nearest = Math.min(nearest, time);
+      const t = (side * radius - initial) / velocity;
+      if (t < 0 || t > 1 || t >= nearest) continue;
+      const x = start.x + (end.x - start.x) * t - a.x;
+      const y = start.y + (end.y - start.y) * t - a.y;
+      const along = (x * dx + y * dy) / length;
+      if (along >= 0 && along <= length) nearest = t;
     }
   }
   return nearest === Infinity ? null : nearest;
 }
 
-/** Normal approach speed distinguishes a grazing contact from a head-on strike. */
-export function shipContact(ship: Ship, asteroid: Asteroid) {
+export function polygonCircleOverlap(vertices: readonly Vector[], center: Vector, radius: number): boolean {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const a = vertices[j], b = vertices[i];
+    if (segmentCircleHit(a, b, center, radius) !== null) return true;
+    if ((a.y > center.y) !== (b.y > center.y) && center.x < (b.x - a.x) * (center.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Relative normal speed determines severity: glances retain tangential drift. */
+export function shipContactResponse(ship: Ship, asteroid: Asteroid, impulseScale = 1) {
   const dx = ship.pos.x - asteroid.pos.x, dy = ship.pos.y - asteroid.pos.y;
-  const d = Math.hypot(dx, dy);
-  const normal = d > 1e-6 ? { x: dx / d, y: dy / d } : { x: -Math.cos(ship.rotation), y: -Math.sin(ship.rotation) };
-  const approach = Math.max(0, -((ship.vel.x - asteroid.vel.x) * normal.x + (ship.vel.y - asteroid.vel.y) * normal.y));
-  return { normal, approach, severity: Math.min(1.35, .45 + approach * .13),
-    point: { x: ship.pos.x - normal.x * ship.radius * .7, y: ship.pos.y - normal.y * ship.radius * .7 } };
+  const distance = Math.hypot(dx, dy);
+  let nx = distance > 0.001 ? dx / distance : -Math.cos(ship.rotation);
+  let ny = distance > 0.001 ? dy / distance : -Math.sin(ship.rotation);
+  let contactPos = { x: ship.pos.x - nx * ship.radius * 0.7, y: ship.pos.y - ny * ship.radius * 0.7 };
+  if (asteroid.vertices.length >= 3) {
+    const cos = Math.cos(asteroid.rotation), sin = Math.sin(asteroid.rotation);
+    const local = { x: dx * cos + dy * sin, y: -dx * sin + dy * cos };
+    let closest = Infinity, px = 0, py = 0;
+    for (let i = 0; i < asteroid.vertices.length; i++) {
+      const a = asteroid.vertices[i], b = asteroid.vertices[(i + 1) % asteroid.vertices.length];
+      const ex = b.x - a.x, ey = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((local.x - a.x) * ex + (local.y - a.y) * ey) / Math.max(1e-8, ex * ex + ey * ey)));
+      const x = a.x + ex * t, y = a.y + ey * t;
+      const d = (x - local.x) ** 2 + (y - local.y) ** 2;
+      if (d < closest) { closest = d; px = x; py = y; }
+    }
+    if (closest > 1e-8 && Number.isFinite(closest)) {
+      const sign = pointInPolygon(local, asteroid.vertices) ? -1 : 1;
+      const lx = (local.x - px) / Math.sqrt(closest) * sign;
+      const ly = (local.y - py) / Math.sqrt(closest) * sign;
+      nx = lx * cos - ly * sin; ny = lx * sin + ly * cos;
+      contactPos = localToWorld({ x: px, y: py }, asteroid.pos, asteroid.rotation);
+    }
+  }
+  const closing = Math.max(0, -((ship.vel.x - asteroid.vel.x) * nx + (ship.vel.y - asteroid.vel.y) * ny));
+  const severity = Math.min(1, closing / 6);
+  const massRatio = Math.min(1, (asteroid.radius / 36) ** 2);
+  const impulse = (0.9 + closing * 0.72) * (0.55 + massRatio * 0.45) * impulseScale;
+  ship.vel.x += nx * impulse;
+  ship.vel.y += ny * impulse;
+  // A bounded spin impulse gives the contact a mechanical reaction without taking control away.
+  const side = Math.cos(ship.rotation) * ny - Math.sin(ship.rotation) * nx;
+  ship.angularVelocity += Math.max(-0.025, Math.min(0.025, side * closing * 0.004));
+  asteroid.vel.x -= nx * impulse * 0.045 / Math.max(0.6, (asteroid.radius / 18) ** 2);
+  asteroid.vel.y -= ny * impulse * 0.045 / Math.max(0.6, (asteroid.radius / 18) ** 2);
+  return { normal: { x: nx, y: ny }, severity, damageScale: 0.42 + severity * 0.83,
+    pos: contactPos };
 }

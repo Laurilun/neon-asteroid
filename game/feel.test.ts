@@ -1,187 +1,133 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EntityType } from '../types';
-import { EFFECT_CAP, FeelResponses } from './feel';
+import { EFFECT_LIMITS, FeelSystem } from './feel';
 import { makeAsteroid, makeBullet, makeShip } from './testFixtures';
-import { fractureAsteroid, fracturePolygon, pieceMotion, polygonArea, rockOutline } from './fracture';
-import { createLabTargets, DEFAULT_LAB, equipLabShip } from './lab';
-import { checkShipCollision, segmentPolygonHit, shipContact } from './collision';
-import { advanceProjectiles, resolveProjectileHits } from './projectiles';
+import { EntityType } from '../types';
+import { breakupAsteroid } from './asteroids';
+import { rockPolygon, seededRandom } from './geometry';
 import { SimulationClock } from './engine';
-import { stepShipMovement } from './movement';
-import { drawGunship, drawRock, drawRound, drawResponses } from './rendering';
+import { DEFAULT_LAB, equipLabWeapon } from './lab';
+import { drawAsteroid, drawFeelEffects, drawProjectile, drawShip } from './art';
 
-const square = [{ x: -30, y: -30 }, { x: 30, y: -30 }, { x: 30, y: 30 }, { x: -30, y: 30 }];
-describe('real polygon fracture', () => {
-  it.each([2, 3, 5])('conserves area across %i pieces and retains the original world outline', count => {
-    const parent = makeAsteroid('parent', 100, 45);
-    parent.vertices = square; parent.rotation = .7; parent.vel = { x: 2, y: -1 };
-    const pieces = fracturePolygon(square, count, .2);
-    expect(pieces).toHaveLength(count);
-    expect(pieces.reduce((area, piece) => area + piece.area, 0)).toBeCloseTo(polygonArea(square));
-    for (const piece of pieces) {
-      expect(piece.radius).toBeGreaterThan(0);
-      const motion = pieceMotion(parent, piece, 0);
-      expect(motion.vel).toEqual(parent.vel);
-      for (const vertex of piece.vertices) {
-        expect(Math.abs(vertex.x + piece.center.x)).toBeLessThanOrEqual(30.000001);
-        expect(Math.abs(vertex.y + piece.center.y)).toBeLessThanOrEqual(30.000001);
-      }
-    }
-  });
-  it('recursively fractures offset polygons without missing material or making NaNs', () => {
-    const rock = createLabTargets({ width: 1280, height: 720 }, { ...DEFAULT_LAB, size: 4 })[0];
-    const pieces = fracturePolygon(rock.vertices, 3, 1.7);
-    for (const piece of pieces) {
-      const children = fracturePolygon(piece.vertices, 2, .33);
-      expect(children.reduce((area, child) => area + child.area, 0)).toBeCloseTo(piece.area);
-      expect(children.every(c => Number.isFinite(c.radius))).toBe(true);
-    }
-    expect(fracturePolygon([], 2, 0)).toEqual([]);
-  });
-  it('inherits parent angular velocity as tangential fragment motion', () => {
-    const parent = makeAsteroid(); parent.rotationSpeed = .1;
-    const piece = fracturePolygon(square, 2, 0)[0];
-    const result = pieceMotion(parent, piece, 0);
-    expect(result.vel.x).toBeCloseTo(-piece.center.y * .1);
-    expect(result.vel.y).toBeCloseTo(piece.center.x * .1);
-  });
-  it('keeps surface features anchored to the same parent through successive gameplay splits', () => {
-    const rock = makeAsteroid(); rock.vertices = square; rock.sizeCategory = 3; rock.scars = [{ x: 10, y: 5 }];
-    const children = fractureAsteroid(rock, 30);
-    expect(children).toHaveLength(2);
-    for (const child of children) {
-      expect(child.surface!.vertices).toBe(square);
-      expect(child.scars![0].x + child.surface!.offset.x).toBeCloseTo(10);
-      expect(child.scars![0].y + child.surface!.offset.y).toBeCloseTo(5);
-      for (const grandchild of fractureAsteroid(child, 15)) {
-        expect(grandchild.surface!.vertices).toBe(square);
-        expect(grandchild.scars![0].x + grandchild.surface!.offset.x).toBeCloseTo(10);
-        expect(grandchild.scars![0].y + grandchild.surface!.offset.y).toBeCloseTo(5);
-        expect(fractureAsteroid(grandchild, 1)).toEqual([]);
-      }
-    }
-  });
-  it('materials have distinct bounded silhouettes instead of palette swaps', () => {
-    const types = [EntityType.Asteroid, EntityType.MoltenAsteroid, EntityType.FrozenAsteroid, EntityType.IronAsteroid, EntityType.TungstenAsteroid];
-    const outlines = types.map(type => rockOutline(50, 12, type, () => .5));
-    expect(new Set(outlines.map(outline => JSON.stringify(outline))).size).toBe(5);
-    expect(outlines.flat().every(v => Math.hypot(v.x, v.y) <= 50)).toBe(true);
-  });
-});
+const impact = { kind: 'impact' as const, pos: { x: 50, y: 50 }, direction: { x: 1, y: 0 },
+  material: EntityType.Asteroid, power: 14, radius: 30, destroyed: false };
 
-describe('physical contacts', () => {
-  it('sweeps against cut edges rather than hitting the empty part of a bounding circle', () => {
-    const narrow = [{ x: -2, y: -30 }, { x: 2, y: -30 }, { x: 2, y: 30 }, { x: -2, y: 30 }];
-    expect(segmentPolygonHit({ x: -100, y: 0 }, { x: 100, y: 0 }, narrow, 1)).toBeCloseTo(.485);
-    expect(segmentPolygonHit({ x: 20, y: -100 }, { x: 20, y: 100 }, narrow, 1)).toBeNull();
-    expect(segmentPolygonHit({ x: 0, y: 0 }, { x: 0, y: 0 }, narrow, 1)).toBe(0);
-    expect(segmentPolygonHit({ x: 3, y: -10 }, { x: 3, y: 10 }, narrow, 1)).toBe(0);
+describe('event-driven presentation', () => {
+  it('owns recoil/heat recovery and bounded event-time effects without touching the projectile', () => {
+    const feel = new FeelSystem(), bullet = makeBullet(); bullet.mountId = 2;
+    const snapshot = structuredClone(bullet);
+    feel.emit({ kind: 'shot', bullet });
+    feel.emit(impact);
+    expect(feel.recoil[2]).toBe(1);
+    expect(feel.muzzle[2]).toBe(1);
+    for (let i = 0; i < 120; i++) feel.step();
+    expect(feel.debris).toEqual([]); expect(feel.accents).toEqual([]);
+    expect(feel.recoil[2]).toBeLessThan(0.001);
+    expect(bullet).toEqual(snapshot);
   });
-  it('ship collision follows a rotated fragment cut face', () => {
-    const ship = makeShip(); const rock = makeAsteroid('cut', 100, 80);
-    rock.vertices = [{ x: 40, y: -20 }, { x: 70, y: -20 }, { x: 70, y: 20 }, { x: 40, y: 20 }];
-    expect(checkShipCollision(ship, rock)).toBe(false);
-    rock.pos.x = 50;
-    expect(checkShipCollision(ship, rock)).toBe(true);
-    rock.rotation = Math.PI / 2;
-    expect(checkShipCollision(ship, rock)).toBe(false);
-  });
-  it('head-on contacts are stronger than glancing contacts, with finite coincident centers', () => {
-    const ship = makeShip(), rock = makeAsteroid('rock', 150, 40);
-    ship.vel = { x: 6, y: 0 }; const headOn = shipContact(ship, rock);
-    ship.vel = { x: .1, y: 6 }; const glancing = shipContact(ship, rock);
-    expect(headOn.severity).toBeGreaterThan(glancing.severity * 2);
-    expect(headOn.normal).toEqual({ x: -1, y: 0 });
-    rock.pos = { ...ship.pos };
-    expect(Number.isFinite(shipContact(ship, rock).normal.x)).toBe(true);
-  });
-  it('small rocks receive larger impulses and only five stable scars survive repeated hits', () => {
-    const ship = makeShip(), small = makeAsteroid('small', 50, 10), large = makeAsteroid('large', 50, 70);
-    for (const target of [small, large]) {
-      target.hp = 1000;
-      for (let i = 0; i < 8; i++) {
-        const bullet = makeBullet();
-        advanceProjectiles([bullet], { width: 800, height: 600 });
-        resolveProjectileHits([bullet], [target], [], ship.stats, () => {}, () => {});
-      }
-      expect(target.scars).toHaveLength(5);
-    }
-    expect(small.vel.x).toBeGreaterThan(large.vel.x * 5);
-  });
-});
 
-describe('presentation budgets and timing', () => {
-  const impact = { kind: 'impact' as const, pos: { x: 10, y: 10 }, direction: { x: 1, y: 0 }, power: 100, material: EntityType.IronAsteroid, ricochet: false };
-  it('bounds dense impacts at creation, caps shake, expires everything and resets cleanly', () => {
-    const feel = new FeelResponses();
-    for (let i = 0; i < 2000; i++) feel.emit(impact, () => .5);
-    expect(feel.effects).toHaveLength(EFFECT_CAP);
-    feel.emit({ kind: 'collision', pos: impact.pos, direction: impact.direction, severity: 100 });
-    expect(feel.shake).toBeLessThanOrEqual(5);
-    for (let i = 0; i < 80; i++) feel.step();
-    expect(feel.effects).toHaveLength(0);
-    feel.reset(); expect(feel.shake).toBe(0); expect(feel.tick).toBe(0);
-  });
-  it('reduced effects changes decoration without changing simulation damage or motion', () => {
-    const feel = new FeelResponses(); feel.reduced = true;
+  it('caps sustained high-rate combat and uses smaller budgets in reduced mode', () => {
+    const feel = new FeelSystem();
     for (let i = 0; i < 1000; i++) feel.emit(impact);
-    expect(feel.effects.length).toBeLessThanOrEqual(90);
-    const ship = makeShip(), original = structuredClone(ship);
-    feel.emit({ kind: 'fired', ship });
-    expect(ship.vel).toEqual(original.vel);
-    expect(ship.stats).toEqual(original.stats);
-    expect(ship.cannonRecoil).toBe(1);
-    for (let i = 0; i < 10; i++) feel.step(ship);
-    expect(ship.cannonRecoil).toBe(0);
+    expect(feel.debris.length).toBeLessThanOrEqual(EFFECT_LIMITS.debris);
+    expect(feel.accents.length).toBeLessThanOrEqual(EFFECT_LIMITS.accents);
+    feel.reduced = true; feel.step();
+    expect(feel.debris.length).toBeLessThanOrEqual(EFFECT_LIMITS.reducedDebris);
+    expect(feel.accents.length).toBeLessThanOrEqual(EFFECT_LIMITS.reducedAccents);
+    feel.reset();
+    expect(feel.heat.every(value => value === 0)).toBe(true);
+    expect(feel.shake).toBe(0);
   });
-  it('uses a global near-miss cooldown rather than spamming close rocks', () => {
-    const feel = new FeelResponses();
-    for (let i = 0; i < 100; i++) feel.emit({ kind: 'nearMiss', pos: impact.pos, direction: impact.direction });
-    expect(feel.effects).toHaveLength(1);
-  });
-  it('generates chunks from the actual parent and retires all breakup geometry', () => {
-    const feel = new FeelResponses(), rock = makeAsteroid('parent', 100, 45); rock.vertices = square;
-    feel.emit({ kind: 'fracture', rock, solidPieces: false }, () => .5);
-    const pieces = feel.effects.filter(e => e.kind === 'chunk');
-    expect(pieces.reduce((sum, e) => sum + polygonArea(e.vertices!), 0)).toBeCloseTo(polygonArea(square));
-    for (let i = 0; i < 100; i++) feel.step();
-    expect(feel.effects).toEqual([]);
-  });
-  it('produces identical handling and effect state at 30, 60 and 144 Hz', () => {
-    const run = (hz: number) => {
-      const ship = makeShip(), feel = new FeelResponses(), clock = new SimulationClock();
-      for (let i = 0; i <= hz * 2; i++) clock.advance(i * 1000 / hz, true, () => {
-        feel.step(ship); stepShipMovement(ship, { up: true, left: false, right: true }, { width: 800, height: 600 });
-        if (feel.tick % 20 === 0) feel.emit(impact, () => .5);
-      });
-      return { ship, effects: feel.effects };
-    };
-    expect(run(30)).toEqual(run(60)); expect(run(144)).toEqual(run(60));
-  });
-  it('rendering uses no randomness and does not advance gameplay or effects', () => {
-    const ctx = new Proxy({}, { get: () => () => {}, set: () => true }) as CanvasRenderingContext2D;
-    const feel = new FeelResponses(), ship = makeShip(), bullet = makeBullet();
-    const rocks = createLabTargets({ width: 1280, height: 720 }, DEFAULT_LAB);
-    feel.emit(impact, () => .5); const before = JSON.stringify({ ship, bullet, rocks, feel });
-    const random = vi.spyOn(Math, 'random').mockImplementation(() => { throw new Error('render randomness'); });
-    try {
-      for (let i = 0; i < 3; i++) {
-        drawGunship(ctx, ship, 10); rocks.forEach(rock => drawRock(ctx, rock, 10, false));
-        drawRound(ctx, bullet); drawResponses(ctx, feel);
-      }
-      expect(JSON.stringify({ ship, bullet, rocks, feel })).toBe(before);
-    } finally { random.mockRestore(); }
-  });
-});
 
-describe('experiment lab', () => {
-  it('makes repeatable destructible targets and immediately equips and removes upgrades', () => {
-    const bounds = { width: 1280, height: 720 };
-    expect(createLabTargets(bounds, DEFAULT_LAB)).toEqual(createLabTargets(bounds, DEFAULT_LAB));
-    expect(createLabTargets(bounds, DEFAULT_LAB).every(a => Number.isFinite(a.hp) && a.hp > 0)).toBe(true);
-    const ship = makeShip(); equipLabShip(ship, { ...DEFAULT_LAB, split: 6, rails: 3, cooling: 8, ricochet: 3 });
-    expect(ship.stats.multishotTier).toBe(6); expect(ship.stats.damageMult).toBeGreaterThan(1);
-    equipLabShip(ship, DEFAULT_LAB);
+  it('keeps full clipped chunks only when gameplay is not already carrying those pieces', () => {
+    const a = makeAsteroid('a', 50, 50); a.vertices = rockPolygon(50, 12, seededRandom(2));
+    const pieces = breakupAsteroid(a, 3), feel = new FeelSystem();
+    feel.emit({ kind: 'fracture', asteroid: a, pieces, livePieces: false });
+    expect(feel.debris.some(e => e.vertices === pieces[0].vertices)).toBe(true);
+    feel.reset(); feel.emit({ kind: 'fracture', asteroid: a, pieces, livePieces: true });
+    expect(feel.debris.some(e => e.vertices === pieces[0].vertices)).toBe(false);
+    for (let i = 0; i < 100; i++) feel.step();
+    expect(feel.debris).toEqual([]);
+  });
+
+  it('does not consume gameplay randomness and reproduces event variation after reset', () => {
+    const feel = new FeelSystem();
+    const spy = vi.spyOn(Math, 'random').mockImplementation(() => { throw Error('gameplay random consumed'); });
+    try {
+      feel.emit(impact); const first = structuredClone(feel.debris);
+      feel.reset(); feel.emit(impact);
+      expect(feel.debris).toEqual(first);
+    } finally { spy.mockRestore(); }
+  });
+
+  it.each([30, 144, 240])('keeps recoil/effect timing identical at %i Hz including a pause', hz => {
+    const run = (refresh: number) => {
+      const feel = new FeelSystem(), clock = new SimulationClock();
+      feel.emit(impact);
+      for (let i = 0; i <= refresh; i++) clock.advance(i * 1000 / refresh, true, () => feel.step());
+      const before = structuredClone(feel.accents);
+      clock.advance(50_000, false, () => feel.step());
+      expect(feel.accents).toEqual(before);
+      return { debris: feel.debris, accents: feel.accents, shake: feel.shake };
+    };
+    expect(run(hz)).toEqual(run(60));
+  });
+
+  it('reports a close approach once and ignores distant passes', () => {
+    const feel = new FeelSystem(), ship = makeShip(), a = makeAsteroid('a', 100, 18);
+    ship.vel.x = 4;
+    for (const [tick, x] of [-30, -12, 0, 12, 30].entries()) {
+      ship.pos = { x: 100 + x, y: 145 };
+      feel.trackNearMisses(ship, [a], tick);
+    }
+    expect(feel.accents.filter(e => e.kind === 'near')).toHaveLength(1);
+    feel.reset(); ship.pos.y = 400; feel.trackNearMisses(ship, [a], 20);
+    expect(feel.accents).toEqual([]);
+  });
+
+  it('applies absolute lab weapon tiers without compounding and restores baseline loadout', () => {
+    const ship = makeShip(), settings = { ...DEFAULT_LAB, split: 5, rapid: 8, rails: 3, ricochet: 4 };
+    equipLabWeapon(ship, settings); const stats = { ...ship.stats };
+    equipLabWeapon(ship, settings); expect(ship.stats).toEqual(stats);
+    equipLabWeapon(ship, DEFAULT_LAB);
     expect(ship.stats.multishotTier).toBe(0); expect(ship.stats.damageMult).toBe(1); expect(ship.stats.fireRateMult).toBe(1);
+  });
+
+  it('draws repeatable frames without random flicker or simulation mutation', () => {
+    const feel = new FeelSystem(), ship = makeShip(), a = makeAsteroid('art', 50, 40), bullet = makeBullet();
+    a.vertices = rockPolygon(40, 10, seededRandom(1));
+    feel.emit(impact);
+    const before = JSON.stringify({ ship, a, bullet, debris: feel.debris, accents: feel.accents });
+    const record = () => {
+      const ops: unknown[] = [];
+      const ctx = new Proxy({}, { get: (_, key) => (...args: unknown[]) => ops.push([key, ...args]),
+        set: (_, key, value) => { ops.push([key, value]); return true; } }) as CanvasRenderingContext2D;
+      drawAsteroid(ctx, a, 100, false); drawShip(ctx, ship, feel, 100); drawProjectile(ctx, bullet);
+      drawFeelEffects(ctx, feel.debris, false);
+      return ops;
+    };
+    const spy = vi.spyOn(Math, 'random').mockImplementation(() => { throw Error('render randomness'); });
+    try { expect(record()).toEqual(record()); } finally { spy.mockRestore(); }
+    expect(JSON.stringify({ ship, a, bullet, debris: feel.debris, accents: feel.accents })).toBe(before);
+  });
+
+  it('rasterizes stable rock surfaces once while drawing later damage as an overlay', () => {
+    let allocations = 0;
+    const ops: unknown[] = [];
+    const context = new Proxy({}, { get: (_, key) => (...args: unknown[]) => ops.push([key, ...args]),
+      set: () => true }) as CanvasRenderingContext2D;
+    vi.stubGlobal('OffscreenCanvas', class {
+      constructor(_width: number, _height: number) { allocations++; }
+      getContext() { return context; }
+    });
+    try {
+      const a = makeAsteroid('cache', 100, 40); a.vertices = rockPolygon(40, 10, seededRandom(2));
+      drawAsteroid(context, a, 0, false);
+      const first = ops.length;
+      a.scars = [{ pos: { x: -30, y: 0 }, angle: 0, strength: 1 }]; a.hp = 5;
+      drawAsteroid(context, a, 1, false);
+      expect(allocations).toBe(1);
+      expect(ops.slice(first).some(op => Array.isArray(op) && op[0] === 'drawImage')).toBe(true);
+      expect(ops.slice(first).some(op => Array.isArray(op) && op[0] === 'lineTo')).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
   });
 });

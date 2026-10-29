@@ -1,16 +1,21 @@
-import { ASTEROID_TYPES, SHIP_FRICTION, SHIP_MAX_SPEED, SHIP_THRUST, SHIP_TURN_SPEED } from '../constants';
+import { ASTEROID_TYPES } from '../constants';
 import type { Ship, Vector } from '../types';
 
 export interface Bounds { width: number; height: number }
 export interface PlayerInput { up: boolean; left: boolean; right: boolean }
+export interface HandlingProfile {
+  label: string; thrust: number; drag: number; maxSpeed: number;
+  angularAcceleration: number; turnSpeed: number; counterSteer: number; releaseDamping: number;
+}
 export const HANDLING_PROFILES = {
-  gunship: { acceleration: .007, braking: .013, damping: .72, thrust: 1, drag: SHIP_FRICTION },
-  drifter: { acceleration: .005, braking: .011, damping: .84, thrust: 1.05, drag: .998 },
-  precise: { acceleration: .011, braking: .02, damping: .55, thrust: 1.1, drag: .992 },
-};
-export type HandlingProfile = keyof typeof HANDLING_PROFILES;
-export interface HandlingSettings { profile: HandlingProfile; thrust: number; steering: number }
-export const DEFAULT_HANDLING: HandlingSettings = { profile: 'gunship', thrust: 1, steering: 1 };
+  gunship: { label: 'Gunship · balanced', thrust: 0.105, drag: 0.995, maxSpeed: 7.5,
+    angularAcceleration: 0.0065, turnSpeed: 0.06, counterSteer: 1.85, releaseDamping: 0.66 },
+  interceptor: { label: 'Interceptor · precise', thrust: 0.13, drag: 0.989, maxSpeed: 8,
+    angularAcceleration: 0.011, turnSpeed: 0.073, counterSteer: 2.1, releaseDamping: 0.53 },
+  freighter: { label: 'Freighter · long drift', thrust: 0.085, drag: 0.998, maxSpeed: 7,
+    angularAcceleration: 0.004, turnSpeed: 0.051, counterSteer: 2.2, releaseDamping: 0.75 },
+} satisfies Record<string, HandlingProfile>;
+export type HandlingPreset = keyof typeof HANDLING_PROFILES;
 
 /** Preserve the original edge teleport, including its loss of overshoot. */
 export function wrapPosition(pos: Vector, bounds: Bounds): void {
@@ -20,41 +25,41 @@ export function wrapPosition(pos: Vector, bounds: Bounds): void {
   if (pos.y > bounds.height) pos.y = 0;
 }
 
-/** Angular inertia with stronger counter-steering; turning never rotates linear momentum. */
-export function stepShipMovement(ship: Ship, input: PlayerInput, bounds: Bounds, settings = DEFAULT_HANDLING): void {
+/** Deliberate rotation with fast arrest/counter-steer and momentum-preserving turns. */
+export function stepShipMovement(ship: Ship, input: PlayerInput, bounds: Bounds,
+  profile: HandlingProfile = HANDLING_PROFILES.gunship, thrustScale = 1): void {
   if (ship.toBeRemoved) return;
-  const profile = HANDLING_PROFILES[settings.profile];
-  const steering = Number(input.right) - Number(input.left);
-  let angular = ship.angularVelocity ?? 0;
-  const oldAngular = angular;
-  if (steering) {
-    angular += steering * (angular * steering < 0 ? profile.braking : profile.acceleration) * settings.steering;
-    angular = Math.max(-SHIP_TURN_SPEED, Math.min(SHIP_TURN_SPEED, angular));
-  } else angular *= profile.damping;
-  if (Math.abs(angular) < .0001) angular = 0;
-  ship.angularVelocity = angular;
-  ship.steeringJet = Math.max(-1, Math.min(1, (angular - oldAngular) / profile.acceleration));
-  ship.rotation += angular;
+  ship.steering = Number(input.right) - Number(input.left);
+  if (ship.steering) {
+    const counter = ship.angularVelocity * ship.steering < 0 ? profile.counterSteer : 1;
+    ship.angularVelocity += ship.steering * profile.angularAcceleration * counter;
+    ship.angularVelocity = Math.max(-profile.turnSpeed, Math.min(profile.turnSpeed, ship.angularVelocity));
+  } else {
+    // Automatic attitude jets arrest rotation; expose the actual corrective command.
+    ship.steering = Math.abs(ship.angularVelocity) > 0.003 ? -Math.sign(ship.angularVelocity) : 0;
+    ship.angularVelocity *= profile.releaseDamping;
+    if (Math.abs(ship.angularVelocity) < 0.0001) ship.angularVelocity = 0;
+  }
+  ship.rotation += ship.angularVelocity;
+  // Keep angles numerically stable through long survival runs.
+  ship.rotation = Math.atan2(Math.sin(ship.rotation), Math.cos(ship.rotation));
   const slow = ship.isFrozen ? (ASTEROID_TYPES.FROZEN.auraSlowFactor || 0.4) : 1;
   ship.thrusting = input.up;
-  ship.throttle = (ship.throttle ?? 0) + (Number(input.up) - (ship.throttle ?? 0)) * .25;
+  ship.throttle += ((input.up ? 1 : 0) - ship.throttle) * (input.up ? 0.28 : 0.35);
   if (ship.thrusting) {
-    const thrust = SHIP_THRUST * ship.stats.thrustMult * slow * profile.thrust * settings.thrust * (.65 + .35 * ship.throttle);
+    const thrust = profile.thrust * thrustScale * ship.stats.thrustMult * slow * (0.45 + 0.55 * ship.throttle);
     ship.vel.x += Math.cos(ship.rotation) * thrust;
     ship.vel.y += Math.sin(ship.rotation) * thrust;
   }
   ship.vel.x *= profile.drag;
   ship.vel.y *= profile.drag;
   const speed = Math.hypot(ship.vel.x, ship.vel.y);
-  const maxSpeed = SHIP_MAX_SPEED * ship.stats.speedMult * slow;
+  const maxSpeed = profile.maxSpeed * ship.stats.speedMult * slow;
   if (speed > maxSpeed) {
-    if (speed > maxSpeed + 0.5) {
-      ship.vel.x *= 0.88;
-      ship.vel.y *= 0.88;
-    } else {
-      ship.vel.x = (ship.vel.x / speed) * maxSpeed;
-      ship.vel.y = (ship.vel.y / speed) * maxSpeed;
-    }
+    // Smooth overspeed recovery preserves external impacts instead of erasing them.
+    const retained = maxSpeed + (speed - maxSpeed) * 0.96;
+    ship.vel.x *= retained / speed;
+    ship.vel.y *= retained / speed;
   }
   ship.pos.x += ship.vel.x;
   ship.pos.y += ship.vel.y;

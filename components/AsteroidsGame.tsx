@@ -58,21 +58,24 @@ import {
     AsteroidTypeName
 } from '../constants';
 import GameUI from './GameUI';
-import FeelLab from './FeelLab';
-import { FeelResponses } from '../game/feel';
-import { fractureAsteroid, rockOutline } from '../game/fracture';
-import { drawGunship, drawRock, drawRound, drawResponses, drawVelocityWake } from '../game/rendering';
-import { DEFAULT_LAB, createLabTargets, equipLabShip, labShipPosition } from '../game/lab';
-import type { LabSettings } from '../game/lab';
 import { compactEntities, SimulationClock } from '../game/engine';
-import { stepShipMovement } from '../game/movement';
-import { checkShipCollision, shipContact } from '../game/collision';
+import { HANDLING_PROFILES, stepShipMovement } from '../game/movement';
+import { checkShipCollision, shipContactResponse } from '../game/collision';
 import { advanceProjectiles, PlayerWeapon, resolveProjectileHits, retireProjectiles } from '../game/projectiles';
 import type { ProjectileImpact } from '../game/projectiles';
+import { breakupAsteroid, createRockGeometry } from '../game/asteroids';
+import { rockPolygon } from '../game/geometry';
+import { FeelSystem } from '../game/feel';
+import { drawAsteroid, drawFeelEffects, drawProjectile, drawShard, drawShip } from '../game/art';
+import { DEFAULT_LAB, equipLabWeapon, type LabSettings } from '../game/lab';
+import FeelLab from './FeelLab';
 
 // --- Utility Functions ---
 const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
 const dist = (v1: Vector, v2: Vector) => Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
+
+const generatePolygon = (radius: number, sides: number, _irregularity: number): Vector[] => rockPolygon(radius, sides);
+const simulationPaused = (state: GameState) => state === GameState.LEVEL_UP || state === GameState.PAUSED;
 
 interface FloatingText {
     id: string;
@@ -93,8 +96,16 @@ const AsteroidsGame: React.FC = () => {
     const transitionTo = useCallback((next: GameState) => {
         gameStateRef.current = next;
         clockRef.current.resetFrame();
+        if (simulationPaused(next)) inputRef.current = { up: false, left: false, right: false };
         setGameState(next);
     }, []);
+
+    const feelRef = useRef(new FeelSystem());
+    const [reducedEffects, setReducedEffects] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    feelRef.current.reduced = reducedEffects;
+    const [labSettings, setLabSettings] = useState<LabSettings>({ ...DEFAULT_LAB });
+    const labRef = useRef(labSettings);
+    const labRepeatRef = useRef(60);
 
     // Game Logic Refs (Decoupled from React State for Perf)
     const xpRef = useRef(0); // XP (Leveling) - ONLY from Orbs (Renamed from scoreRef to avoid confusion)
@@ -119,11 +130,6 @@ const AsteroidsGame: React.FC = () => {
     const [showDamageNumbers, setShowDamageNumbers] = useState(true); // Default ON
     const [startLevel, setStartLevel] = useState(1);
     const [isFreebie, setIsFreebie] = useState(false); // Track free upgrade state
-    const feelRef = useRef(new FeelResponses());
-    const [reducedEffects, setReducedEffects] = useState(false);
-    const [labSettings, setLabSettings] = useState<LabSettings>({ ...DEFAULT_LAB });
-    const labRef = useRef(labSettings);
-    const labRepeatTimerRef = useRef(0);
     const sandboxRef = useRef(false); // Ref for game loop access
     const showDamageNumbersRef = useRef(true); // Ref for game loop access
     const isDevModeRef = useRef(false);
@@ -183,7 +189,6 @@ const AsteroidsGame: React.FC = () => {
 
         clockRef.current.reset();
         feelRef.current.reset();
-        labRepeatTimerRef.current = 0;
         shipRef.current = {
             id: 'player',
             type: EntityType.Player,
@@ -194,6 +199,7 @@ const AsteroidsGame: React.FC = () => {
             rotation: -Math.PI / 2,
             color: COLORS.SHIP,
             toBeRemoved: false,
+            angularVelocity: 0, throttle: 0, steering: 0,
             thrusting: false,
             hull: SHIP_BASE_HULL,
             maxHull: SHIP_BASE_HULL,
@@ -259,7 +265,7 @@ const AsteroidsGame: React.FC = () => {
         setDeathReason('');
         setIsFreebie(false);
 
-        const initialLevel = isDevMode && !isSandbox ? startLevel : 1;
+        const initialLevel = isDevMode ? startLevel : 1;
         levelRef.current = initialLevel;
         setUiLevel(initialLevel);
 
@@ -269,7 +275,7 @@ const AsteroidsGame: React.FC = () => {
         }
         xpTargetRef.current = target;
 
-        if (initialLevel > 1) {
+        if (initialLevel > 1 && !(isDevMode && isSandbox)) {
             setUiPendingUpgrades(initialLevel - 1);
             prepareLevelUp(true);
         } else {
@@ -278,13 +284,10 @@ const AsteroidsGame: React.FC = () => {
         }
 
         // Sync sandbox ref for game loop
-        sandboxRef.current = isSandbox && isDevMode;
+        sandboxRef.current = isDevMode && isSandbox;
 
-        if (isSandbox && isDevMode) {
-            equipLabShip(shipRef.current, labRef.current);
-            shipRef.current.pos = labShipPosition({ width: canvas.width, height: canvas.height });
-            asteroidsRef.current = createLabTargets({ width: canvas.width, height: canvas.height }, labRef.current);
-        }
+        if (sandboxRef.current) resetLabWorld();
+        canvas.focus();
 
     }, [startLevel, isDevMode, isSandbox]);
 
@@ -453,7 +456,7 @@ const AsteroidsGame: React.FC = () => {
             angle: 0,
             color: props.color,
             toBeRemoved: false,
-            vertices: rockOutline(props.radius, props.vertices, getEntityType(typeName)),
+            vertices: createRockGeometry(props.radius, props.vertices, getEntityType(typeName)),
             hp: props.hp,
             maxHp: props.hp,
             sizeCategory: sizeCat,
@@ -513,7 +516,7 @@ const AsteroidsGame: React.FC = () => {
                 angle: 0,
                 color: props.color,
                 toBeRemoved: false,
-                vertices: rockOutline(props.radius, props.vertices),
+                vertices: generatePolygon(props.radius, props.vertices, 3),
                 hp: props.hp,
                 maxHp: props.hp,
                 sizeCategory: 1,
@@ -573,7 +576,7 @@ const AsteroidsGame: React.FC = () => {
                 angle: 0,
                 color: props.color,
                 toBeRemoved: false,
-                vertices: rockOutline(props.radius, props.vertices, EntityType.IronAsteroid),
+                vertices: createRockGeometry(props.radius, props.vertices, EntityType.IronAsteroid),
                 hp: props.hp,
                 maxHp: props.hp,
                 sizeCategory: sizeCat,
@@ -589,7 +592,7 @@ const AsteroidsGame: React.FC = () => {
     const createAsteroid = (pos: Vector, vel: Vector, sizeCat: 1 | 2 | 3 | 4, typeName: AsteroidTypeName = 'REGULAR') => {
         const props = calculateAsteroidProps(typeName, sizeCat, levelRef.current);
 
-        asteroidsRef.current.push({
+        const asteroid: Asteroid = {
             id: Math.random().toString(36).substr(2, 9),
             type: getEntityType(typeName),
             pos: pos,
@@ -598,7 +601,7 @@ const AsteroidsGame: React.FC = () => {
             angle: 0,
             color: props.color,
             toBeRemoved: false,
-            vertices: rockOutline(props.radius, props.vertices, getEntityType(typeName)),
+            vertices: createRockGeometry(props.radius, props.vertices, getEntityType(typeName)),
             hp: props.hp,
             maxHp: props.hp,
             sizeCategory: sizeCat,
@@ -606,7 +609,9 @@ const AsteroidsGame: React.FC = () => {
             rotation: Math.random() * Math.PI * 2,
             rotationSpeed: randomRange(-props.rotation, props.rotation),
             pulsateOffset: Math.random() * Math.PI * 2
-        });
+        };
+        asteroidsRef.current.push(asteroid);
+        return asteroid;
     };
 
 
@@ -740,20 +745,22 @@ const AsteroidsGame: React.FC = () => {
         const typeConfig = ASTEROID_TYPES[typeName];
         const shouldSplit = typeConfig.splits && a.sizeCategory >= ASTEROID_SPLIT_MIN_SIZE;
 
-        feelRef.current.emit({ kind: 'fracture', rock: a, solidPieces: shouldSplit });
+        const count = shouldSplit ? (a.sizeCategory === 4 ? ASTEROID_SPLIT_COUNT_XLARGE : ASTEROID_SPLIT_COUNT_NORMAL) : 3 + a.sizeCategory;
+        const pieces = breakupAsteroid(a, count);
+        feelRef.current.emit({ kind: 'fracture', asteroid: a, pieces, livePieces: shouldSplit });
         if (shouldSplit) {
             const newSize = (a.sizeCategory - 1) as 1 | 2 | 3;
-            const props = calculateAsteroidProps(typeName, newSize, levelRef.current);
-            const children = fractureAsteroid(a, props.hp);
-            let slots = MAX_ASTEROIDS - asteroidsRef.current.reduce((count, rock) => count + Number(!rock.toBeRemoved), 0);
-            for (const child of children) {
-                if (slots-- <= 0) {
-                    feelRef.current.emit({ kind: 'fracture', solidPieces: false, rock: child });
-                    continue;
-                }
-                asteroidsRef.current.push(child);
+            for (const piece of pieces) {
+                const child = createAsteroid(piece.pos, piece.vel, newSize, typeName);
+                child.vertices = piece.vertices;
+                child.radius = piece.radius;
+                child.rotation = piece.rotation;
+                child.rotationSpeed = piece.rotationSpeed;
+                child.labTarget = a.labTarget;
+                child.scars = a.scars?.map(scar => ({ ...scar, pos: { x: scar.pos.x - piece.center.x, y: scar.pos.y - piece.center.y } }));
             }
         }
+        // Experiments use real damage/splits but do not interrupt trials with loot menus.
         if (sandboxRef.current) return;
 
         if (Math.random() < HULL_DROP_CHANCE) spawnHullOrb(a.pos);
@@ -952,26 +959,64 @@ const AsteroidsGame: React.FC = () => {
         screenShakeRef.current = 25;
     };
 
-    const showProjectileImpact = (hit: ProjectileImpact) => {
-        const { bullet: b } = hit;
-        const speed = Math.hypot(b.vel.x, b.vel.y) || 1;
-        feelRef.current.emit({ kind: 'impact', pos: b.pos,
-            direction: { x: b.vel.x / speed, y: b.vel.y / speed }, power: b.damage,
-            material: hit.target.type, ricochet: !!b.isRicochet });
-        if (showDamageNumbersRef.current) spawnFloatingText(b.pos, Math.round(b.damage).toString(), '#d7b978', 11);
+    const takeShipDamage = (ship: Ship, amount: number) => {
+        if (!(sandboxRef.current && labRef.current.immortal)) ship.hull -= amount;
     };
 
-    const respawnLabTargets = () => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        asteroidsRef.current = createLabTargets({ width: canvas.width, height: canvas.height }, labRef.current);
-        shardsRef.current = []; bulletsRef.current = [];
-        feelRef.current.reset(); labRepeatTimerRef.current = 0;
+    const showProjectileImpact = (hit: ProjectileImpact) => {
+        const b = hit.bullet;
+        feelRef.current.emit({ kind: 'impact', pos: b.pos, direction: b.vel,
+            material: hit.kind === 'shard' ? EntityType.TungstenShard : hit.target.type,
+            power: b.damage, radius: hit.target.radius, destroyed: hit.destroyed });
+        if (showDamageNumbersRef.current) {
+            spawnFloatingText(b.pos, Math.round(b.damage).toString(), hit.kind === 'shard' ? '#b8c6c6' : b.isRicochet ? '#a2e0dc' : '#ecd19b', 11);
+        }
     };
-    const changeLab = (settings: LabSettings) => {
-        const previous = labRef.current;
-        labRef.current = settings; setLabSettings(settings);
-        if (sandboxRef.current && (previous.material !== settings.material || previous.size !== settings.size || previous.moving !== settings.moving)) respawnLabTargets();
+
+    const resetLabWorld = (resetShip = true) => {
+        const canvas = canvasRef.current, ship = shipRef.current;
+        if (!canvas || !ship) return;
+        const settings = labRef.current;
+        asteroidsRef.current = []; shardsRef.current = []; asteroidCloudsRef.current = [];
+        pendingSpawnsRef.current = [];
+        if (resetShip) {
+            bulletsRef.current = []; particlesRef.current = []; floatingTextsRef.current = [];
+            expOrbsRef.current = []; hullOrbsRef.current = []; freebieOrbsRef.current = [];
+            feelRef.current.reset(); weaponRef.current.reset();
+            inputRef.current = { up: false, left: false, right: false };
+            ship.pos = { x: canvas.width * 0.24, y: canvas.height * 0.55 };
+            ship.vel = { x: 0, y: 0 }; ship.rotation = 0; ship.angularVelocity = 0;
+            ship.throttle = 0; ship.steering = 0; ship.hull = ship.maxHull; ship.toBeRemoved = false;
+            ship.invulnerableUntil = clockRef.current.timeMs + 1000;
+            Object.assign(activeUpgradesRef.current, equipLabWeapon(ship, settings));
+            setUiActiveUpgrades({ ...activeUpgradesRef.current });
+            canvas.focus();
+        }
+        const targetX = Math.min(canvas.width - 130, canvas.width * 0.24 + 250);
+        const positions = settings.size === 4 ? [0.55, 0.19] : [0.55, 0.23, 0.82];
+        for (let i = 0; i < positions.length; i++) {
+            const asteroid = createAsteroid({ x: targetX + (i === 1 ? 80 : 0), y: canvas.height * positions[i] },
+                settings.moving ? { x: -0.55 - i * 0.15, y: i % 2 ? 0.32 : -0.22 } : { x: 0, y: 0 }, settings.size, settings.material);
+            asteroid.labTarget = true;
+        }
+        labRepeatRef.current = 60;
+    };
+
+    const updateLab = (settings: LabSettings) => {
+        labRef.current = settings;
+        setLabSettings(settings);
+        if (sandboxRef.current && shipRef.current) {
+            Object.assign(activeUpgradesRef.current, equipLabWeapon(shipRef.current, settings));
+            setUiActiveUpgrades({ ...activeUpgradesRef.current });
+        }
+    };
+
+    const exitLab = () => {
+        asteroidsRef.current = []; shardsRef.current = []; bulletsRef.current = [];
+        asteroidCloudsRef.current = []; pendingSpawnsRef.current = []; particlesRef.current = [];
+        expOrbsRef.current = []; hullOrbsRef.current = []; freebieOrbsRef.current = []; dronesRef.current = [];
+        floatingTextsRef.current = []; shipRef.current = null; feelRef.current.reset();
+        transitionTo(GameState.MENU);
     };
 
     // --- Game Loop ---
@@ -989,6 +1034,14 @@ const AsteroidsGame: React.FC = () => {
         handleResize();
 
         const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.target as HTMLElement)?.closest('input, select, textarea, button')) return;
+            if (e.code === 'KeyP' && (gameStateRef.current === GameState.PLAYING || gameStateRef.current === GameState.PAUSED)) {
+                e.preventDefault();
+                if (e.repeat) return;
+                transitionTo(gameStateRef.current === GameState.PAUSED ? GameState.PLAYING : GameState.PAUSED);
+                return;
+            }
+            if (['ArrowUp', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
             if (e.code === 'F3') {
                 e.preventDefault();
                 debugRef.current.enabled = !debugRef.current.enabled;
@@ -996,9 +1049,6 @@ const AsteroidsGame: React.FC = () => {
                 debugRef.current.frames = 0;
                 return;
             }
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-            if (e.target instanceof HTMLButtonElement && e.code === 'Space') return;
-            if (['ArrowUp', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
             if (e.code === 'ArrowUp') inputRef.current.up = true;
             if (e.code === 'ArrowLeft') inputRef.current.left = true;
             if (e.code === 'ArrowRight') inputRef.current.right = true;
@@ -1029,14 +1079,14 @@ const AsteroidsGame: React.FC = () => {
 
         const simulateStep = () => {
             const currentGameState = gameStateRef.current;
-            if (currentGameState === GameState.LEVEL_UP) return;
+            if (simulationPaused(currentGameState)) return;
             if (!sandboxRef.current && currentGameState === GameState.PLAYING && xpRef.current >= xpTargetRef.current) {
                 checkLevelUp(xpRef.current);
                 return;
             }
             const timeScale = 1; // Exactly one 60 Hz simulation tick.
             frameCountRef.current++;
-            feelRef.current.step(shipRef.current);
+            feelRef.current.step();
             const crossedFrameInterval = (interval: number) => frameCountRef.current % interval === 0;
             const cw = canvas.width, ch = canvas.height;
             const currentLevel = levelRef.current;
@@ -1052,15 +1102,12 @@ const AsteroidsGame: React.FC = () => {
             }
 
             const ship = shipRef.current;
+            if (sandboxRef.current && labRef.current.immortal && ship) {
+                ship.hull = ship.maxHull;
+            }
 
             // --- LOGIC (Paused during LEVEL_UP) ---
             if (currentGameState === GameState.PLAYING && ship && !ship.toBeRemoved) {
-                if (sandboxRef.current) {
-                    equipLabShip(ship, labRef.current);
-                    if (labRef.current.repeat && asteroidsRef.current.length === 0) {
-                        if (++labRepeatTimerRef.current >= 75) respawnLabTargets();
-                    } else labRepeatTimerRef.current = 0;
-                }
                 // --- SPAWNING DIRECTOR: THREAT-WEIGHTED SYSTEM ---
                 if (!sandboxRef.current) {
                     // Calculate current threat on screen
@@ -1142,7 +1189,7 @@ const AsteroidsGame: React.FC = () => {
                         angle: 0,
                         color: props.color,
                         toBeRemoved: false,
-                        vertices: rockOutline(props.radius, props.vertices, getEntityType(pending.typeName)),
+                        vertices: createRockGeometry(props.radius, props.vertices, getEntityType(pending.typeName)),
                         hp: props.hp,
                         maxHp: props.hp,
                         sizeCategory: pending.sizeCat,
@@ -1231,7 +1278,7 @@ const AsteroidsGame: React.FC = () => {
                             // Apply aura damage (respect invulnerability window)
                             if (clockRef.current.timeMs > ship.invulnerableUntil) {
                                 const auraDPS = typeConfig.auraDPS || 10;
-                                ship.hull -= (auraDPS / 60) * timeScale;
+                                takeShipDamage(ship, (auraDPS / 60) * timeScale);
                             }
 
                             if (auraType === 'frozen') {
@@ -1263,11 +1310,12 @@ const AsteroidsGame: React.FC = () => {
                     spawnFloatingText(ship.pos, "BURN!", ASTEROID_TYPES.MOLTEN.color, 12);
                 }
 
-                stepShipMovement(ship, inputRef.current, { width: cw, height: ch }, sandboxRef.current ? labRef.current : undefined);
-                if ((!sandboxRef.current || labRef.current.firing) && weaponRef.current.step(ship, bulletsRef.current)) {
-                    feelRef.current.emit({ kind: 'fired', ship });
-                }
-
+                const lab = labRef.current;
+                stepShipMovement(ship, inputRef.current, { width: cw, height: ch },
+                    sandboxRef.current ? HANDLING_PROFILES[lab.profile] : HANDLING_PROFILES.gunship,
+                    sandboxRef.current ? lab.thrust : 1);
+                weaponRef.current.step(ship, bulletsRef.current, Math.random,
+                    bullet => feelRef.current.emit({ kind: 'shot', bullet }));
 
                 // --- Drone Swarm Logic ---
                 if (stats.droneCount > 0) {
@@ -1382,7 +1430,7 @@ const AsteroidsGame: React.FC = () => {
 
             asteroidsRef.current.forEach(a => {
                 // MOLTEN HOMING: Gently track player, but decay so it drifts off
-                if ((!sandboxRef.current || labRef.current.moving) && a.type === EntityType.MoltenAsteroid && ship && !ship.toBeRemoved) {
+                if (a.type === EntityType.MoltenAsteroid && !a.labTarget && ship && !ship.toBeRemoved) {
                     // Gentle steering toward player while preserving drift
                     const distToPlayer = dist(a.pos, ship.pos);
                     const baseHoming = 0.006;
@@ -1405,7 +1453,8 @@ const AsteroidsGame: React.FC = () => {
                 // SOFT PHYSICS: Repulsion Only (gravity is now Tungsten-specific)
                 // Asteroids push apart when overlapping to prevent stacking
                 for (const other of asteroidsRef.current) {
-                    if (other === a || other.toBeRemoved || (sandboxRef.current && !labRef.current.moving)) continue;
+                    if (other === a || other.toBeRemoved) continue;
+                    if (a.labTarget && other.labTarget) continue;
                     const dx = a.pos.x - other.pos.x;
                     const dy = a.pos.y - other.pos.y;
                     const d = Math.sqrt(dx * dx + dy * dy);
@@ -1595,7 +1644,7 @@ const AsteroidsGame: React.FC = () => {
                                     orbitSpeed: shardOrbitSpeed * (Math.random() > 0.5 ? 1 : -1) * randomRange(0.5, 1.5),
                                     hp: shardHp,
                                     maxHp: shardHp,
-                                    vertices: rockOutline(shardRadius, 5 + Math.floor(Math.random() * 3), EntityType.TungstenShard), // 5-7 sides
+                                    vertices: generatePolygon(shardRadius, 5 + Math.floor(Math.random() * 3), 2), // 5-7 sides
                                     rotation: Math.random() * Math.PI * 2,
                                     rotationSpeed: randomRange(-0.15, 0.15), // Faster chaotic spin
                                     hitFlash: 0,
@@ -1670,10 +1719,6 @@ const AsteroidsGame: React.FC = () => {
                     shard.pos.x += shard.vel.x * timeScale;
                     shard.pos.y += shard.vel.y * timeScale;
                     shard.rotation += shard.rotationSpeed * 3 * timeScale; // Spin faster
-                    
-                    if (Math.random() < 0.2) {
-                        spawnParticles(shard.pos, ASTEROID_TYPES.TUNGSTEN.color, 1, 1);
-                    }
                     
                     const buffer = 100;
                     if (shard.pos.x < -buffer || shard.pos.x > cw + buffer || shard.pos.y < -buffer || shard.pos.y > ch + buffer) {
@@ -1772,7 +1817,6 @@ const AsteroidsGame: React.FC = () => {
                     if (p.variant === 'DEBRIS') {
                         p.vel.x *= 0.92;
                         p.vel.y *= 0.92;
-
                     }
 
                     p.life -= p.decay * timeScale;
@@ -1833,13 +1877,14 @@ const AsteroidsGame: React.FC = () => {
                                 
                                 if (shard.isThrown) {
                                     // Thrown shard acts like a fast projectile
+                                    const relativeSpeed = Math.hypot(shard.vel.x - ship.vel.x, shard.vel.y - ship.vel.y);
                                     ship.vel.x += Math.cos(angle) * 3.5; // Reduced knockback
                                     ship.vel.y += Math.sin(angle) * 3.5;
-                                    ship.hull -= 12; // Reduced damage
+                                    takeShipDamage(ship, 12);
                                     shard.toBeRemoved = true;
-                                    spawnParticles(ship.pos, COLORS.SHIP, 10, 4);
-                                    spawnParticles(shard.pos, ASTEROID_TYPES.TUNGSTEN.color, 15, 6);
-                                    screenShakeRef.current = 6;
+                                    feelRef.current.emit({ kind: 'ship-contact', pos: shard.pos,
+                                        normal: { x: Math.cos(angle), y: Math.sin(angle) },
+                                        severity: Math.min(1, relativeSpeed / 10), material: EntityType.TungstenShard });
                                     spawnFloatingText(ship.pos, "-12 SHARD!", '#ff0000', 16);
                                     
                                     if (ship.hull <= 0) {
@@ -1852,7 +1897,7 @@ const AsteroidsGame: React.FC = () => {
                                     // Normal orbiting shard
                                     ship.vel.x += Math.cos(angle) * TUNGSTEN_SHARD_PUSH_FORCE;
                                     ship.vel.y += Math.sin(angle) * TUNGSTEN_SHARD_PUSH_FORCE;
-                                    ship.hull -= (TUNGSTEN_SHARD_TOUCH_DPS / 60) * timeScale;
+                                    takeShipDamage(ship, (TUNGSTEN_SHARD_TOUCH_DPS / 60) * timeScale);
                                     if (ship.hull <= 0 && !triggerShieldSave()) {
                                         ship.toBeRemoved = true;
                                         handleGameOver("Shattered by Shard");
@@ -1863,13 +1908,6 @@ const AsteroidsGame: React.FC = () => {
 
                         asteroidsRef.current.forEach(a => {
                             if (a.toBeRemoved || ship.toBeRemoved || clockRef.current.timeMs <= ship.invulnerableUntil) return;
-                            const gap = dist(ship.pos, a.pos) - a.radius - ship.radius;
-                            const rvx = ship.vel.x - a.vel.x, rvy = ship.vel.y - a.vel.y;
-                            if (!a.nearMissed && gap > 0 && gap < 12 && Math.hypot(rvx, rvy) > 2.5 &&
-                                rvx * (ship.pos.x - a.pos.x) + rvy * (ship.pos.y - a.pos.y) > 0) {
-                                a.nearMissed = true;
-                                feelRef.current.emit({ kind: 'nearMiss', pos: ship.pos, direction: { x: rvx, y: rvy } });
-                            }
                             if (checkShipCollision(ship, a)) {
                                 // Calculate damage from new type system (all types including Molten)
                                 const getAsteroidTypeName = (type: EntityType): AsteroidTypeName => {
@@ -1887,25 +1925,14 @@ const AsteroidsGame: React.FC = () => {
 
                                 const levelDamageMult = Math.min(LEVEL_DAMAGE_CAP, 1 + (levelRef.current - 1) * LEVEL_DAMAGE_SCALING);
                                 const baseDamage = ASTEROID_BASE.DAMAGE * sizeMult.damage * asteroidTypeConfig.damageMult * levelDamageMult;
-                                const contact = shipContact(ship, a);
-                                const damage = Math.round(baseDamage * contact.severity);
-
-                                // Base knockback + type-specific multiplier (Iron = massive pushback!)
-                                const baseKnockback = 6 + a.sizeCategory * 2;
-                                const knockbackTypeMult = asteroidTypeConfig.knockbackMult || 1.0;
-                                const knockback = baseKnockback * knockbackTypeMult;
-
-                                // Molten also has extra knockback (2x on top of type mult)
-                                const finalKnockback = (a.type === EntityType.MoltenAsteroid ? knockback * 2 : knockback) * contact.severity * .65;
-
-                                // All asteroids deal damage + knockback (ship no longer destroys on impact)
-                                ship.vel.x += contact.normal.x * finalKnockback;
-                                ship.vel.y += contact.normal.y * finalKnockback;
-                                feelRef.current.emit({ kind: 'collision', pos: contact.point, direction: contact.normal, severity: contact.severity });
-                                ship.hull -= damage;
-                                if (a.type !== EntityType.FrozenAsteroid) a.hitFlash = HIT_FLASH_FRAMES;
-
-                                spawnFloatingText(ship.pos, `-${damage} HULL`, '#db9879', 14);
+                                const contact = shipContactResponse(ship, a,
+                                    Math.sqrt(asteroidTypeConfig.knockbackMult || 1) * (sandboxRef.current ? labRef.current.impact : 1));
+                                const damage = Math.round(baseDamage * contact.damageScale);
+                                takeShipDamage(ship, damage);
+                                a.hitFlash = Math.max(a.hitFlash, 2);
+                                feelRef.current.emit({ kind: 'ship-contact', pos: contact.pos, normal: contact.normal,
+                                    severity: contact.severity, material: a.type });
+                                spawnFloatingText(ship.pos, `-${damage} HULL`, '#e8b58a', 14);
 
                                 ship.invulnerableUntil = clockRef.current.timeMs + 300;
 
@@ -1919,6 +1946,13 @@ const AsteroidsGame: React.FC = () => {
                             }
                         });
                     }
+                }
+            }
+
+            if (currentGameState === GameState.PLAYING && ship && !ship.toBeRemoved) {
+                if (clockRef.current.timeMs > ship.invulnerableUntil) feelRef.current.trackNearMisses(ship, asteroidsRef.current, frameCountRef.current);
+                if (sandboxRef.current && labRef.current.repeat && !asteroidsRef.current.some(a => !a.toBeRemoved)) {
+                    if (--labRepeatRef.current <= 0) resetLabWorld(false);
                 }
             }
 
@@ -1952,10 +1986,10 @@ const AsteroidsGame: React.FC = () => {
 
         const loop = (frameNow: number) => {
             clockRef.current.advance(
-                frameNow, !document.hidden && document.hasFocus() && gameStateRef.current !== GameState.LEVEL_UP,
+                frameNow, !document.hidden && document.hasFocus() && !simulationPaused(gameStateRef.current),
                 () => {
                     simulateStep();
-                    return gameStateRef.current !== GameState.LEVEL_UP;
+                    return !simulationPaused(gameStateRef.current);
                 },
             );
             const debug = debugRef.current;
@@ -2034,15 +2068,14 @@ const AsteroidsGame: React.FC = () => {
 
             ctx.save();
 
-            if (!feelRef.current.reduced) {
-                const feel = feelRef.current;
-                const amplitude = Math.min(5, Math.max(feel.shake, screenShakeRef.current * .25));
-                const phase = frameCountRef.current;
-                ctx.translate(Math.sin(phase * 2.1) * amplitude * feel.shakeDirection.x,
-                    Math.cos(phase * 1.7) * amplitude * (.35 + Math.abs(feel.shakeDirection.y) * .65));
+            const feel = feelRef.current;
+            const shake = feel.reduced ? 0 : Math.min(6, Math.max(feel.shake, screenShakeRef.current * 0.25)) * (sandboxRef.current ? labRef.current.shake : 1);
+            if (shake > 0.03) {
+                ctx.translate(Math.sin(frameCountRef.current * 2.37) * shake,
+                    Math.cos(frameCountRef.current * 1.91) * shake * 0.65);
             }
 
-            ctx.fillStyle = '#080e15';
+            ctx.fillStyle = '#080f16';
             ctx.fillRect(-50, -50, cw + 100, ch + 100);
 
             // --- RENDER ---
@@ -2085,7 +2118,8 @@ const AsteroidsGame: React.FC = () => {
                 ctx.restore();
             });
 
-            bulletsRef.current.forEach(b => { if (isOnScreen(b.pos, 40)) drawRound(ctx, b); });
+            drawFeelEffects(ctx, feel.accents, true);
+            bulletsRef.current.forEach(b => { if (isOnScreen(b.pos, 40)) drawProjectile(ctx, b); });
 
             // Orbs (no shadows - retro style + performance)
             ctx.lineWidth = 2;
@@ -2154,125 +2188,17 @@ const AsteroidsGame: React.FC = () => {
                 ctx.globalAlpha = 1.0;
             });
 
-            // Asteroids
             asteroidsRef.current.forEach(a => {
-                if (!isOnScreen(a.pos, a.radius + 50)) return; // Skip offscreen (extra buffer for aura)
-
-                ctx.save();
-                ctx.translate(a.pos.x, a.pos.y);
-                ctx.rotate(a.rotation);
-
-                if (a.type === EntityType.FrozenAsteroid) {
-                    const frozenCfg = ASTEROID_TYPES.FROZEN;
-                    const sizeScale = frozenCfg.auraSizeScale || 0;
-                    const sizeBonus = 1 + (a.sizeCategory - 1) * sizeScale;
-                    const auraRadius = ((frozenCfg.auraRange || 120) * sizeBonus) + a.radius;
-
-                    ctx.save();
-                    ctx.rotate(-a.rotation);
-                    ctx.strokeStyle = frozenCfg.color;
-                    ctx.lineWidth = 2 + Math.sin(frameCountRef.current * 0.1);
-                    ctx.globalAlpha = 0.5 + Math.sin(frameCountRef.current * 0.05) * 0.3;
-                    ctx.beginPath();
-                    ctx.arc(0, 0, auraRadius, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-
-                // Molten burn aura - fiery orange ring
-                if (a.type === EntityType.MoltenAsteroid) {
-                    const moltenCfg = ASTEROID_TYPES.MOLTEN;
-                    if (moltenCfg.hasAura && moltenCfg.auraRange) {
-                        const sizeScale = moltenCfg.auraSizeScale || 0;
-                        const sizeBonus = 1 + (a.sizeCategory - 1) * sizeScale;
-                        const auraRadius = (moltenCfg.auraRange * sizeBonus) + a.radius;
-
-                        ctx.save();
-                        ctx.rotate(-a.rotation);
-
-                        // Fiery glow effect
-                        const flicker = Math.sin(frameCountRef.current * 0.15) * 0.2;
-                        ctx.strokeStyle = '#ff4500'; // Orange-red
-                        ctx.lineWidth = 3 + Math.sin(frameCountRef.current * 0.2) * 2;
-                        ctx.globalAlpha = 0.4 + flicker;
-                        ctx.beginPath();
-                        ctx.arc(0, 0, auraRadius, 0, Math.PI * 2);
-                        ctx.stroke();
-
-                        // Inner heat ring
-                        ctx.strokeStyle = '#ff6600';
-                        ctx.lineWidth = 1.5;
-                        ctx.globalAlpha = 0.3 + flicker * 0.5;
-                        ctx.beginPath();
-                        ctx.arc(0, 0, auraRadius - 5, 0, Math.PI * 2);
-                        ctx.stroke();
-
-                        ctx.restore();
-                    }
-                }
-
-                // Tungsten gravity aura - dark brown with vibrating space-bending effect
-                if (a.type === EntityType.TungstenAsteroid) {
-                    const tungstenCfg = ASTEROID_TYPES.TUNGSTEN;
-                    if (tungstenCfg.hasGravityAura && tungstenCfg.gravityRange) {
-                        const sizeScale = tungstenCfg.gravitySizeScale || 0;
-                        const sizeBonus = 1 + (a.sizeCategory - 1) * sizeScale;
-                        const gravityRadius = (tungstenCfg.gravityRange * sizeBonus) + a.radius;
-
-                        ctx.save();
-                        ctx.rotate(-a.rotation);
-
-                        // Vibrating space-bending effect - multiple rings that oscillate
-                        const time = frameCountRef.current * 0.08;
-                        const baseColor = '#6b4f3a'; // Warm brown glow
-
-                        for (let i = 0; i < 4; i++) {
-                            // Each ring pulses inward at staggered speeds
-                            const ringPhase = (time + i * 0.25) % 1;
-                            const ringRadius = gravityRadius * (1 - ringPhase * 0.4);
-                            const ringAlpha = (1 - ringPhase) * 0.2;
-
-                            // Vibrating line width for space-bending effect
-                            const vibrate = Math.sin(frameCountRef.current * 0.3 + i * 1.5) * 1.5;
-                            const lineWidth = 2 + Math.abs(vibrate);
-
-                            ctx.strokeStyle = baseColor;
-                            ctx.lineWidth = lineWidth;
-                            ctx.globalAlpha = ringAlpha;
-                            ctx.beginPath();
-                            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
-                            ctx.stroke();
-                        }
-
-                        // Inner distortion ring - extra vibrating effect
-                        const innerVibrate = Math.sin(frameCountRef.current * 0.5) * 3;
-                        ctx.strokeStyle = '#4a3728';
-                        ctx.lineWidth = 3 + Math.abs(innerVibrate);
-                        ctx.globalAlpha = 0.3 + Math.sin(frameCountRef.current * 0.15) * 0.1;
-                        ctx.beginPath();
-                        ctx.arc(0, 0, a.radius * 1.8 + innerVibrate, 0, Math.PI * 2);
-                        ctx.stroke();
-
-                        ctx.restore();
-                    }
-                }
-
-                drawRock(ctx, a, frameCountRef.current, feelRef.current.reduced, asteroidsRef.current.length < 70);
-
-                ctx.restore();
+                if (isOnScreen(a.pos, a.radius + 200)) drawAsteroid(ctx, a, frameCountRef.current, feel.reduced);
             });
-            ctx.shadowBlur = 0;
-
             shardsRef.current.forEach(shard => {
-                if (shard.toBeRemoved || !isOnScreen(shard.pos, shard.radius)) return;
-                ctx.save(); ctx.translate(shard.pos.x, shard.pos.y); ctx.rotate(shard.rotation);
-                drawRock(ctx, shard, frameCountRef.current, feelRef.current.reduced);
-                ctx.restore();
+                if (!shard.toBeRemoved && isOnScreen(shard.pos, shard.radius)) drawShard(ctx, shard, frameCountRef.current);
             });
-            drawResponses(ctx, feelRef.current);
+            drawFeelEffects(ctx, feel.debris, false);
+            drawFeelEffects(ctx, feel.accents, false);
 
             // Ship & Drones
-            if (currentGameState === GameState.PLAYING && ship && !ship.toBeRemoved) {
+            if ((currentGameState === GameState.PLAYING || simulationPaused(currentGameState)) && ship && !ship.toBeRemoved) {
 
                 dronesRef.current.forEach(d => {
                     ctx.save();
@@ -2331,16 +2257,10 @@ const AsteroidsGame: React.FC = () => {
                 });
 
                 let shouldDraw = true;
-                if (!feelRef.current.reduced && ship.invulnerableUntil > clockRef.current.timeMs) if (Math.floor(clockRef.current.timeMs / 100) % 2 === 0) shouldDraw = false;
+                if (!feel.reduced && ship.invulnerableUntil > clockRef.current.timeMs) if (Math.floor(clockRef.current.timeMs / 100) % 2 === 0) shouldDraw = false;
 
                 if (shouldDraw) {
-                    drawVelocityWake(ctx, ship);
-                    ctx.save();
-                    ctx.translate(ship.pos.x, ship.pos.y);
-                    ctx.rotate(ship.rotation);
-
-                    drawGunship(ctx, ship, frameCountRef.current);
-                    ctx.restore();
+                    drawShip(ctx, ship, feel, frameCountRef.current);
 
                     if (ship.stats.shieldCharges > 0) {
                         ctx.strokeStyle = COLORS.SHIELD;
@@ -2393,19 +2313,20 @@ const AsteroidsGame: React.FC = () => {
             if (debug.enabled) {
                 ctx.save();
                 const debugX = cw - 247;
-                const debugY = ch - 124;
+                const debugY = ch - 148;
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
-                ctx.fillRect(debugX, debugY, 235, 112);
+                ctx.fillRect(debugX, debugY, 235, 136);
                 ctx.fillStyle = '#8bffb0';
                 ctx.font = '12px monospace';
                 ctx.textAlign = 'left';
                 ctx.fillText(`DEBUG  ${debug.fps || '...'} FPS`, debugX + 10, debugY + 22);
                 ctx.fillStyle = '#d8e4ff';
                 ctx.fillText(`asteroids ${asteroidsRef.current.length}  bullets ${bulletsRef.current.length}`, debugX + 10, debugY + 43);
-                ctx.fillText(`effects ${feelRef.current.effects.length} / ${particlesRef.current.length}  orbs ${expOrbsRef.current.length + hullOrbsRef.current.length + freebieOrbsRef.current.length}`, debugX + 10, debugY + 64);
+                ctx.fillText(`particles ${particlesRef.current.length}  orbs ${expOrbsRef.current.length + hullOrbsRef.current.length + freebieOrbsRef.current.length}`, debugX + 10, debugY + 64);
                 ctx.fillText(`shards ${shardsRef.current.length}  drones ${dronesRef.current.length}`, debugX + 10, debugY + 85);
+                ctx.fillText(`chunks ${feel.debris.length}  effects ${feel.accents.length}`, debugX + 10, debugY + 106);
                 ctx.fillStyle = '#8aa0bf';
-                ctx.fillText('F3 toggles diagnostics', debugX + 10, debugY + 104);
+                ctx.fillText('F3 toggles diagnostics', debugX + 10, debugY + 127);
                 ctx.restore();
             }
             frameRef.current = requestAnimationFrame(loop);
@@ -2427,14 +2348,18 @@ const AsteroidsGame: React.FC = () => {
 
     return (
         <div className="relative w-full h-full font-mono">
-            <canvas ref={canvasRef} className="block" />
-            <button onClick={() => { const value = !reducedEffects; setReducedEffects(value); feelRef.current.reduced = value; }}
-                style={{ position: 'absolute', bottom: 12, left: 14, zIndex: 40, padding: '5px 9px', background: '#14212c', color: '#b7c9cb', border: '1px solid #40545f', borderRadius: 4, fontSize: 10 }}>
-                Effects: {reducedEffects ? 'Reduced' : 'Full'}</button>
-            {sandboxRef.current && isDevMode && gameState === GameState.PLAYING && <FeelLab settings={labSettings}
-                onChange={changeLab} onReset={initGame} onTargets={respawnLabTargets}
-                onClear={() => { asteroidsRef.current = []; shardsRef.current = []; bulletsRef.current = []; feelRef.current.reset(); changeLab({ ...labRef.current, repeat: false }); }}
-                onExit={() => { sandboxRef.current = false; asteroidsRef.current = []; shardsRef.current = []; bulletsRef.current = []; feelRef.current.reset(); transitionTo(GameState.MENU); }} />}
+            <canvas ref={canvasRef} className="block" tabIndex={0} aria-label="Neon Void flight arena" style={{ outline: 'none' }} />
+            <button onClick={() => { setReducedEffects(value => !value); canvasRef.current?.focus(); }}
+                style={{ position: 'absolute', top: 14, right: 14, zIndex: 55, padding: '6px 10px', border: '1px solid #43565e', borderRadius: 4, background: '#10202ae8', color: '#bdcece', font: '11px ui-monospace', cursor: 'pointer' }}>
+                Reduced effects: {reducedEffects ? 'ON' : 'OFF'}
+            </button>
+            {isDevMode && isSandbox && gameState !== GameState.MENU && gameState !== GameState.GAME_OVER && <FeelLab
+                settings={labSettings} onChange={updateLab} onReset={() => resetLabWorld()}
+                onExit={exitLab} onPause={() => { transitionTo(gameStateRef.current === GameState.PAUSED ? GameState.PLAYING : GameState.PAUSED); canvasRef.current?.focus(); }}
+                paused={gameState === GameState.PAUSED} onInteract={() => { inputRef.current = { up: false, left: false, right: false }; }} />}
+            {gameState === GameState.PAUSED && <div style={{ position: 'absolute', bottom: 30, left: '50%', transform: 'translateX(-50%)', color: '#e8d2a8', background: '#10202af0', border: '1px solid #52616a', padding: '12px 24px', borderRadius: 5, zIndex: 30 }}>
+                PAUSED · <button onClick={() => { transitionTo(GameState.PLAYING); canvasRef.current?.focus(); }} style={{ color: '#f4d79e', cursor: 'pointer' }}>Resume [P]</button>
+            </div>}
             <GameUI
                 gameState={gameState}
                 score={uiScore}

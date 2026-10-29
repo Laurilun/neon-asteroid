@@ -15,11 +15,8 @@ export const FPS = 60;
 // SHIP - Player ship physics and base stats
 // ============================================================================
 
-export const SHIP_SIZE = 19;                    // Armored hull circumradius in pixels
-export const SHIP_THRUST = 0.09;                // Acceleration per fixed tick
-export const SHIP_TURN_SPEED = 0.055;            // Maximum angular velocity per tick
-export const SHIP_FRICTION = 0.996;             // Momentum retained per tick
-export const SHIP_MAX_SPEED = 7.0;              // Maximum velocity magnitude
+export const SHIP_SIZE = 18;                    // Armored hull half-length in pixels
+// Thrust, momentum and steering presets live together in game/movement.ts.
 export const SHIP_BASE_HULL = 100;              // Starting hull points
 
 // ============================================================================
@@ -27,11 +24,11 @@ export const SHIP_BASE_HULL = 100;              // Starting hull points
 // ============================================================================
 
 // Bullets
-export const BULLET_SPEED = 9;                  // Bullet velocity (slower = more visible, satisfying lead-aim)
-export const BULLET_LIFE = 28;                  // Frames before bullet disappears (longer to compensate speed)
-export const BULLET_RATE = 20;                  // Frames between shots (lower = faster)
-export const BULLET_DAMAGE = 10;                // Damage per bullet hit (SHIP)
-export const BULLET_RADIUS = 2.5;               // Bullet size (larger = more visible impact)
+export const BULLET_SPEED = 12;                 // Dense rail slugs; swept collision prevents tunneling
+export const BULLET_LIFE = 26;                  // Short-range base battery (~312px)
+export const BULLET_RATE = 18;                  // Mechanical base cadence at 60 Hz
+export const BULLET_DAMAGE = 14;
+export const BULLET_RADIUS = 2;                 // Tight hitbox; long silhouette conveys energy
 
 // Invulnerability (in milliseconds)
 export const INVULN_DURATION_SHIELD = 5000;     // Invuln after shield saves you (5s)
@@ -359,12 +356,7 @@ export const SHIELD_RADIATION_RADIUS_PER_TIER = 10; // +10px per tier (nerfed fr
 export const SHIELD_RADIATION_BASE_DPS = 0;     // Base damage per second
 export const SHIELD_RADIATION_DPS_PER_TIER = 3; // +3 DPS per tier (nerfed from 4)
 
-// Multishot spread angles
-export const MULTISHOT_SPREAD = {
-    DOUBLE: 0.1,                                // Angle offset for 2 barrels
-    TRIPLE: 0.2,                                // Angle offset for 3 barrels
-    DYNAMIC_TOTAL: 0.6                          // Total spread arc for 4+ barrels
-};
+// Physical cannon layouts live in game/geometry.ts and are shared with hitboxes.
 
 // ============================================================================
 // VISUALS - Particles, effects, and juice
@@ -397,7 +389,7 @@ export const MAX_PARTICLES = 150;               // Max debris/thrust particles
 export const MAX_XP_ORBS = 100;                 // Max XP orbs on screen
 export const MAX_HULL_ORBS = 20;                // Max hull orbs on screen
 export const MAX_FLOATING_TEXT = 15;            // Max damage/XP numbers
-export const MAX_BULLETS = 256;                 // Seven-barrel batteries plus rails/ricochets, still bounded
+export const MAX_BULLETS = 220;                 // Supports eight fast cannons + rail lifetime, still bounded
 export const MAX_FREEBIE_ORBS = 20;             // Rare upgrade drops must not accumulate forever
 export const MAX_SHARDS = 80;                    // Defensive shards/projectiles across all Tungsten asteroids
 export const MAX_ASTEROIDS = 120;                // Absolute safety ceiling for a long endless run
@@ -461,7 +453,7 @@ export const UPGRADES: UpgradeDef[] = [
     {
         id: 'multishot',
         name: 'Split Shot',
-        description: (t) => t <= 6 ? `${t + 1} physical cannons. Each fires a full-strength round in a parallel battery.` : `7 cannons. Reinforced battery: +${(t - 6) * 20}% damage per round.`,
+        description: (t) => t < 8 ? `${t + 1} mounted cannons, 80% cannon damage each. Tight converging battery.` : `8 cannons, reinforced battery +${Math.round((t - 7) * 8)}% damage.`,
         category: UpgradeCategory.COMBAT,
         color: 'text-red-400 border-red-500 shadow-red-500/50'
     },
